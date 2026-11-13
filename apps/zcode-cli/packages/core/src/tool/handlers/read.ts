@@ -204,11 +204,6 @@ export const readHandler: ToolHandler = async (input, context) => {
     const readFileState = getReadFileState(context);
     const cacheOffset = normalizeCacheOffset(offset);
     const cached = findLatestReadFileState(readFileState, filePath);
-    if (cached && isSameReadView(cached, cacheOffset, limit) && isCachedReadFresh(cached, stat)) {
-      // 修复原因：这里的快照只是当时最新记录的副本，冷恢复按它重放会恢复出已不在 active history
-      // 里的视图（例如那次真实读取已被 compact 摘要）。不写 live 状态，也不记录快照。
-      return { type: "file_unchanged", filePath } satisfies ReadOutput;
-    }
 
     let rangeReadRevision: FileSystemStatResult["revision"] | undefined;
     const output = await readTextFileForModel({
@@ -222,6 +217,22 @@ export const readHandler: ToolHandler = async (input, context) => {
       offset,
       trace,
     });
+    // FORK-BEGIN(edit-stale-guard)
+    // 修复原因：mtime/size 相同仍可能换过内容；先读出真实版本，再决定是否返回重复视图存根。
+    const currentStat = {
+      ...stat,
+      revision: rangeReadRevision ?? stat.revision,
+      sizeBytes: rangeReadRevision?.sizeBytes ?? stat.sizeBytes,
+    };
+    if (
+      cached &&
+      isSameReadView(cached, cacheOffset, limit) &&
+      isCachedReadFresh(cached, currentStat)
+    ) {
+      // 存根不写 live 状态或快照，冷恢复仍由此前真实读取恢复模型已见视图。
+      return { type: "file_unchanged", filePath } satisfies ReadOutput;
+    }
+    // FORK-END(edit-stale-guard)
     updateReadFileState(readFileState, {
       output,
       path: filePath,
@@ -364,6 +375,13 @@ function isSameReadView(
 function isCachedReadFresh(entry: ReadFileStateEntry, stat: FileSystemStatResult): boolean {
   if (entry.isPartialView) return false;
 
+  // FORK-BEGIN(edit-stale-guard)
+  // 旧记录缺 hash 而当前读取有 hash 时必须返回正文，才能建立可靠的写入基线。
+  const currentHash = stat.revision?.hash;
+  if (entry.contentHash !== undefined || currentHash !== undefined) {
+    return entry.contentHash !== undefined && entry.contentHash === currentHash;
+  }
+  // FORK-END(edit-stale-guard)
   const mtimeMs = stat.revision?.mtimeMs ?? stat.mtimeMs;
   if (entry.mtimeMs !== undefined && mtimeMs !== undefined) {
     // 和写前 freshness 校验保持同一套策略，mtime 只比较整数毫秒。
@@ -394,7 +412,8 @@ function updateReadFileState(state: ReadFileStateMap, input: ReadTextFileStateIn
 }
 
 function createReadTextFileStateEntry(input: ReadTextFileStateInput): ReadFileStateEntry {
-  const revision = input.stat.revision ?? input.rangeReadRevision;
+  // FORK(edit-stale-guard): stat 只有时间戳和大小，不能遮蔽真实读取携带的内容哈希与版本。
+  const revision = input.rangeReadRevision ?? input.stat.revision;
   return {
     path: input.path,
     ...requestedPathField(input.requestedPath, input.path),
@@ -410,7 +429,8 @@ function createReadTextFileStateEntry(input: ReadTextFileStateInput): ReadFileSt
     // FORK(edit-stale-guard): 区间读取仍携带完整文件哈希，避免同 mtime/size 的改动被放过。
     contentHash: revision?.hash,
     mtimeMs: normalizeReadFileStateMtimeMs(revision?.mtimeMs ?? input.stat.mtimeMs),
-    sizeBytes: input.stat.sizeBytes,
+    // FORK(edit-stale-guard): 大小与内容版本来自同一次读取。
+    sizeBytes: revision?.sizeBytes ?? input.stat.sizeBytes,
   };
 }
 

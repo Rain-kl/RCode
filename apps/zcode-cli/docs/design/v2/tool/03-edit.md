@@ -75,7 +75,7 @@
 9. 不存在文件且 `old_string` 为空时创建文件的行为，ZCode 暂不暴露；后续如需支持必须先更新 `Write/Edit` 边界和测试。
 10. `.ipynb` 文件拒绝，要求用 Notebook edit 工具。
 11. 已存在文件必须此前完整 `Read`。
-12. mtime 变更时，如果完整读缓存内容仍相同，可继续；否则拒绝 stale edit。
+12. 在当前文件中匹配目标片段；无关位置变化仍可编辑，目标不存在或存在歧义时返回具体匹配错误。
 13. 先用 exact，再用 quote normalization 和受限兼容 matcher 查找实际字符串。
 14. 匹配不到或非唯一匹配时拒绝；fallback 候选多于一个也必须拒绝，不允许工具替模型猜位置。
 15. 对 settings 文件做额外校验。
@@ -106,7 +106,7 @@
 | 目标存在且旧字符串为空 | 不能创建，文件已存在 |
 | notebook | 需要专用 notebook edit |
 | 未读或 partial read | 必须先完整读取 |
-| mtime/content 变化 | stale edit |
+| 目标片段消失或存在歧义 | 匹配失败，补充当前内容或上下文后重试 |
 | old string 找不到 | 匹配失败 |
 | 多处匹配但未 replace_all | 歧义替换 |
 | 文件过大 | 超出编辑大小上限 |
@@ -120,7 +120,7 @@ provider-visible `modelContent` 外包 `<tool_use_error>`；UI、日志和结构
 message。
 
 数字错误码固定为：无变更 `1`、文件已存在且
-`old_string` 为空 `3`、文件不存在 `4`、Notebook `5`、未完整读取 `6`、stale `7`、
+`old_string` 为空 `3`、文件不存在 `4`、Notebook `5`、未完整读取 `6`、
 未找到 `8`、非唯一 `9`、文件过大 `10`。I/O 故障、取消或 expected revision 冲突仍属于
 执行异常，继续走通用异常路径。ZCode path policy 额外拒绝空 `file_path`，由 Edit
 handler 在进入共享路径解析前返回本地稳定错误码 `13` 和既有

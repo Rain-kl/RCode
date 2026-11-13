@@ -25,6 +25,8 @@ export interface PersistedReadFileStateMetadata {
   revisionId: string;
   mtimeMs: number;
   sizeBytes: number;
+  // FORK(edit-stale-guard): 可选字段兼容旧快照，恢复后继续使用真实已读版本。
+  contentHash?: string;
   /**
    * 执行器在工具记录快照时取的序号（与写 live 状态在同一个同步步骤里），即 live 的写入顺序；
    * 只在同一 assistant 内比较。旧记录没有这个字段。
@@ -86,6 +88,8 @@ export function createReadFileStateMetadataFromEntry(input: {
     revisionId: entry.revisionId,
     mtimeMs: entry.mtimeMs,
     sizeBytes: entry.sizeBytes,
+    // FORK(edit-stale-guard): 保存原始字节哈希，避免 resume 丢失写保护基线。
+    ...(entry.contentHash === undefined ? {} : { contentHash: entry.contentHash }),
   };
 }
 
@@ -122,6 +126,8 @@ export function parseReadFileStateMetadata(
   const offset = numberField(readState, "offset");
   const limit = numberField(readState, "limit");
   const snapshotIndex = numberField(readState, "snapshotIndex");
+  // FORK(edit-stale-guard): hash 为可选字段，旧快照保持可读。
+  const contentHash = stringField(readState, "contentHash");
 
   return {
     schemaVersion: READ_FILE_STATE_METADATA_SCHEMA_VERSION,
@@ -136,6 +142,8 @@ export function parseReadFileStateMetadata(
     mtimeMs,
     sizeBytes,
     ...(snapshotIndex === undefined ? {} : { snapshotIndex }),
+    // FORK(edit-stale-guard): 旧记录缺 hash 仍可读，新记录保留内容版本。
+    ...(contentHash === undefined ? {} : { contentHash }),
   };
 }
 

@@ -150,7 +150,7 @@ Read(file_path=.pdf)
 7. 文本文件由 `FileSystemPort` 统一完成 bytes 到 Unicode 的解码、LF 规范化、原始 `encoding` 和 `lineEndings` 记录；无法可靠判定为文本或包含混合/不支持编码时返回稳定 `unsupported` 错误，不向模型展示乱码。
 8. 记录 `readFileState`，用于后续 `Edit` 和 `Write` 的读前写入保护。
 9. 重复读取 dedup 只比较该文件最近一次记录的视图：这个视图来自 Read，offset/limit 与本次相同，
-   且文件 mtime/size 未变，才返回 `file_unchanged`。Edit/Write 写入后记录的状态不参与 dedup，
+   且当前文件内容哈希相同，才返回 `file_unchanged`；只有两侧均缺少哈希的旧端口才回落到 mtime/size。Edit/Write 写入后记录的状态不参与 dedup，
    之后的 Read 返回文件内容（模型没看过写入后的内容）；中间读过其他范围后，再读原范围也返回内容。
 10. 对图片和 PDF 提取页复用现有尺寸、API byte budget 和 token budget 压缩。
 11. 对视频做格式识别和 `30MiB` 输入上限校验，不做转码或压缩。

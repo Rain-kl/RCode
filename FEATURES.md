@@ -351,23 +351,15 @@
 - **已知边界**：macOS 自更新要求签名（未配置签名 secret 时 macOS 端自动更新不可用）；更新元数据本身无签名，信任根转移到 GitHub 仓库写权限；更新弹窗的 release notes 会退化为空（generic provider 不带 `releaseNotesByLocale`）；移除强更 gate 后没有强制下线能力。
 - **上游同步记录（2026-10-16，`29628c9..aac47556`）**：冲突文件 `packages/desktop/src/main/autoUpdater.ts`、`packages/desktop/src/main/index.ts`、`packages/desktop/src/main/forceUpdateGuard.ts`、`packages/desktop/src/main/forceUpdatePrompt.ts`、`packages/desktop/src/main/manifestUpdateProvider.ts`、`packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts`、`packages/services/src/coding-plan-subscription/codingPlanSubscription.ts`、`packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts`、`packages/shared/src/coding-plan-subscription.ts`。上游使用服务端 manifest 与 `minimalVersion` 强更；本 fork 使用 GitHub Releases 且不接远端强更。保留 GitHub feed、强更文件/类型/RPC 删除与已有发布元数据，同时合入桌面 remote-control/tray 更新、billing discount 和 request verification 接口，并合入 generic updater 状态机；启动检查仍先读取持久化 preview 设置并切换 GitHub feed 后再请求更新。删除随上游回流的 manifest/强更专属测试，保留其余自动更新状态覆盖；`electronBuilderLinuxPackageTargets.test.ts` 保留 fork 依赖的 stable/preview 通道元数据检测。
 
-## 编辑 stale 判据改为内容哈希 (edit-stale-guard)
+## 文件编辑与覆盖保护 (edit-stale-guard)
 
-- **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留内容哈希 stale 判据，吸收上游 Read 范围冷恢复与 snapshotIndex 顺序，不能退回仅时间戳判断。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
-- **状态**：已完成（2026-09-29）
-- **需求背景**：`Edit` / `Write` 写入前要判「文件自模型读取后是否被改过」，上游用 mtime + size 代理，两个方向都会出错。**误报**：唯一的豁免只对「严格整读」生效，range Read（offset/limit）拿不到它，于是格式化器空保存、IDE 保存、git 触碰、同一 workspace 的另一个会话只要推进了 mtime，就被判 stale，哪怕字节没变。**漏报**：判「变了」要求 mtime 严格变大，mtime 不前进且 size 相同时直接放行且不比对内容（write.ts 的最终内容比对只覆盖整读），于是 `cp -p`、`tar -x`、`rsync -t` 这类保留时间戳的写入会静默覆盖别的进程刚写下的内容。
-- **修改内容**：
-  1. 读路径补齐整文件内容哈希：range 读取（`text-range-reader.ts` 快路径与流式路径）的 revision 补上 `hash`，与上游既有的整文件读、写路径共用同一算法与 `sha256:` 前缀（实现收拢到 fork 模块 `content-hash.ts`，避免各写一份而漂移）。哈希对象一律是磁盘原始字节——`utf16le`/`latin1` 等编码下「解码后再按 utf8 编码」会与写路径写下的字节不同，会让未改动文件永久判 stale。
-  2. `ReadFileStateEntry` 增可选 `contentHash`，由 Read、Bash 回填、Edit、Write 四个写入方落库。
-  3. 判据新增 fork 模块 `hash-staleness.ts`：两侧哈希都有且相同 → 不判 stale（消除误报，无视 mtime/size）；都有且不同 → 直接判 stale（消除漏报，无视 mtime/size）；任一缺失 → 原样回落上游 mtime/size 判据。`FILE_NOT_READ`/partial view 的拒绝位置不变。
-  4. 持久化 schema 不动：resume 从历史 metadata 恢复的 read-state 没有哈希，回落旧判据。
-- **修改文件**：新增 `apps/zcode-cli/packages/adapters/src/fork/edit-stale-guard/content-hash.ts`、`apps/zcode-cli/packages/core/src/fork/edit-stale-guard/hash-staleness.ts`、`apps/zcode-cli/packages/core/test/forkEditStaleGuard.test.ts`（8 个用例）、`docs/features/edit-stale-guard/**`；上游接线 `apps/zcode-cli/packages/adapters/src/fs/index.ts`、`apps/zcode-cli/packages/adapters/src/fs/text-range-reader.ts`、`apps/zcode-cli/packages/core/src/tool/types.ts`、`apps/zcode-cli/packages/core/src/tool/handlers/{read,edit,write,bash-read-file-state}.ts`。
-- **上游改动标记**：7 个上游文件、20 处 `FORK(edit-stale-guard)` / `FORK-BEGIN` / `FORK-END`——`adapters/src/fs/index.ts`（4）、`adapters/src/fs/text-range-reader.ts`（5）、`core/src/tool/handlers/edit.ts`（4）、`core/src/tool/handlers/write.ts`（4）、`core/src/tool/types.ts`（1）、`core/src/tool/handlers/read.ts`（1）、`core/src/tool/handlers/bash-read-file-state.ts`（1）。两处判据块（`edit.ts`、`write.ts`）成对标记，可整块摘除。
-- **设计文档**：`docs/features/edit-stale-guard/design.md`
-- **实现文档**：`docs/features/edit-stale-guard/implementation.md`（落地位置、标记清单、验证记录、与设计的偏差）
-- **上游收敛**：上游若自己实现内容哈希判据（或让 range 读取自带 hash），删除本功能并采用上游实现——摘除范围见实现文档第 2 节。
-- **已知边界**：判据是字节级的，只改行尾（CRLF↔LF）或 BOM 的重写也算 stale，模型需重新 Read；`Read` 的 `file_unchanged` 短路（`read.ts` 的 `isCachedReadFresh`）仍按 mtime+size，属同族残留但不在本次范围。
-- **上游同步记录**：暂无。
+- **需求背景**：局部编辑曾因无关位置变化被整文件检查拒绝；读取状态缺失内容哈希时，时间戳变化会误报，保留时间戳的外部修改又会漏报。
+- **修改内容**：Edit 在当前文件中匹配目标片段并保留其他变化，目标不存在或存在歧义时返回具体错误；Write 对已有文件保留原始字节内容哈希检查。Read 保存真实读取版本，重复视图按内容版本去重，重新读取变化后的文件返回正文；新快照保存可选哈希供会话恢复。
+- **修改文件**：`apps/zcode-cli/packages/core/src/tool/handlers/{read,edit,write,bash-read-file-state}.ts`、`core/src/tool/{types,read-file-state-metadata}.ts`、`core/src/agent/read-file-state-hydrator.ts`；哈希模块位于 `core/src/fork/edit-stale-guard/` 与 `adapters/src/fork/edit-stale-guard/`，文件读取适配位于 `adapters/src/fs/{index,text-range-reader}.ts`（路径均在 `apps/zcode-cli/packages/` 下）。
+- **上游改动标记**：`FORK(edit-stale-guard)`，覆盖读取版本、局部编辑资格、Write 判据、快照和恢复接线。
+- **设计文档**：[文件编辑与覆盖保护](docs/features/edit-stale-guard/design.md)
+- **实现文档**：[落地与验收](docs/features/edit-stale-guard/implementation.md)
+- **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留内容哈希，吸收 Read 范围冷恢复与 snapshotIndex 顺序；见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 
 ## 非流式走流式通道 (nonstream-via-stream)
 

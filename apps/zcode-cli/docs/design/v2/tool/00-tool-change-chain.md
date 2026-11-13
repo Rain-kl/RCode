@@ -1,5 +1,12 @@
 # Tool Change Chain Spec
 
+## 文件编辑与覆盖保护（2026-11-13）
+
+Read → 文件系统端口的内容版本 → 唯一 read-state → 工具快照 → 会话恢复。
+Edit 根据当前文件匹配局部目标；Write 对已有文件检查已读内容哈希；Read 重复视图按内容版本去重。
+工具失败保留匹配失败、歧义与覆盖冲突的区别。验收覆盖真实读取、外部修改、写入和恢复链路，见
+[文件编辑与覆盖保护](../../../../../../docs/features/edit-stale-guard/design.md)。
+
 ## Fork：上游会话生命周期接线（2026-11-03）
 
 /reload 采用上游 session restart；/refresh 仅重载 fork 配置。重启通过既有生命周期 owner

@@ -98,6 +98,8 @@ function restoreSnapshot(
     readAt: new Date(snapshot.readAtMs),
     ...(markRestoredFromSession ? { restoredFromSession: true as const } : {}),
     revisionId: snapshot.revisionId,
+    // FORK(edit-stale-guard): 恢复历史已读哈希，不能用当前磁盘内容替代基线。
+    contentHash: snapshot.contentHash,
     sizeBytes: snapshot.sizeBytes,
     sourceTool: snapshot.tool,
   });
@@ -109,6 +111,8 @@ function setReadState(
   filePath: string,
   content: string,
   metadata: {
+    // FORK(edit-stale-guard): 与 live 读取状态使用同一份内容版本。
+    contentHash?: string;
     isPartialView?: boolean;
     limit?: number;
     mtimeMs?: number;
@@ -131,6 +135,8 @@ function setReadState(
     readAt: metadata.readAt,
     sourceTool: metadata.sourceTool,
     revisionId: metadata.revisionId,
+    // FORK(edit-stale-guard): 新快照携带 hash，旧快照保持 undefined。
+    contentHash: metadata.contentHash,
     mtimeMs: metadata.mtimeMs,
     sizeBytes: metadata.sizeBytes ?? Buffer.byteLength(content, "utf8"),
     ...(metadata.restoredFromSession ? { restoredFromSession: true } : {}),

@@ -43,8 +43,6 @@ import {
   setReadFileStateEntry,
 } from "../read-file-state.js";
 import { createReadFileStateMetadataFromEntry } from "../read-file-state-metadata.js";
-// FORK(edit-stale-guard): 内容哈希判据；见 FEATURES.md 的 edit-stale-guard 条目
-import { resolveStalenessByContentHash } from "../../fork/edit-stale-guard/hash-staleness.js";
 import {
   attachToolExecutionTelemetry,
   elapsedMsSince,
@@ -63,8 +61,6 @@ const NON_UNIQUE_OLD_STRING_MESSAGE =
   "old_string is not unique in the file. Provide more surrounding context or set replace_all to true.";
 const MAX_EDIT_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const EDIT_NOT_READ_MESSAGE = "File has not been read yet. Read it first before writing to it.";
-const EDIT_STALE_MESSAGE =
-  "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.";
 const EDIT_FRESHNESS_SUFFIX = " (file state is current in your context — no need to Read it back)";
 
 function formatEditModelContent(output: unknown): string {
@@ -175,7 +171,8 @@ export const editHandler: ToolHandler = async (input, context) => {
         "Cannot create new file - file already exists.",
       );
     }
-    const readStateFailure = getEditableReadStateFailure(filePath, read, context.readFileState);
+    // FORK(edit-stale-guard): 局部编辑匹配当前文件，避免无关位置变化被整文件 stale 检查误拒。
+    const readStateFailure = getEditableReadStateFailure(filePath, context.readFileState);
     if (readStateFailure) return readStateFailure;
     return writeEditResult({
       context,
@@ -200,7 +197,8 @@ export const editHandler: ToolHandler = async (input, context) => {
     );
   }
 
-  const readStateFailure = getEditableReadStateFailure(filePath, read, context.readFileState);
+  // FORK(edit-stale-guard): 局部编辑匹配当前文件，避免无关位置变化被整文件 stale 检查误拒。
+  const readStateFailure = getEditableReadStateFailure(filePath, context.readFileState);
   if (readStateFailure) return readStateFailure;
 
   const patchMatchStartedAt = Date.now();
@@ -423,7 +421,6 @@ function levenshteinDistance(left: string, right: string): number {
 
 function getEditableReadStateFailure(
   filePath: string,
-  currentRead: FileSystemReadTextResult,
   readFileState: ReadFileStateMap | undefined,
 ): ToolHandlerFailure | undefined {
   if (!readFileState) return undefined;
@@ -433,54 +430,8 @@ function getEditableReadStateFailure(
     return editFailure(EditErrorCode.FILE_NOT_READ, EDIT_NOT_READ_MESSAGE);
   }
 
-  // FORK-BEGIN(edit-stale-guard)
-  // 有内容哈希就以字节为准：相同即未变（去掉时间戳误报），不同即已变（堵住保留时间戳的漏报）；
-  // 缺哈希才回落到上游 mtime/size。见 FEATURES.md 的 edit-stale-guard 条目
-  const hashVerdict = resolveStalenessByContentHash({
-    recordedHash: lastRead.contentHash,
-    currentHash: currentRead.revision?.hash,
-  });
-  if (hashVerdict === "fresh") return undefined;
-  if (hashVerdict === "stale") {
-    return editFailure(EditErrorCode.STALE_FILE, EDIT_STALE_MESSAGE);
-  }
-  // FORK-END(edit-stale-guard)
-
-  if (!hasReadStateChanged(lastRead, currentRead)) return undefined;
-  if (isStrictFullRead(lastRead) && lastRead.content === currentRead.content) return undefined;
-
-  return editFailure(EditErrorCode.STALE_FILE, EDIT_STALE_MESSAGE);
-}
-
-function isStrictFullRead(entry: ReadFileStateEntry): boolean {
-  if (entry.isPartialView) return false;
-  return (entry.offset ?? 1) <= 1 && entry.limit === undefined;
-}
-
-function hasReadStateChanged(
-  lastRead: ReadFileStateEntry,
-  currentRead: FileSystemReadTextResult,
-): boolean {
-  const currentMtimeMs = currentRead.revision?.mtimeMs;
-  if (lastRead.mtimeMs !== undefined && currentMtimeMs !== undefined) {
-    // 亚毫秒级精度，只在当前文件的整数毫秒晚于 Read 记录或大小变化时判 stale，减少误报。
-    const normalizedCurrentMtimeMs = normalizeReadFileStateMtimeMs(currentMtimeMs);
-    const normalizedLastReadMtimeMs = normalizeReadFileStateMtimeMs(lastRead.mtimeMs);
-    const mtimeAdvanced =
-      normalizedCurrentMtimeMs !== undefined &&
-      normalizedLastReadMtimeMs !== undefined &&
-      normalizedCurrentMtimeMs > normalizedLastReadMtimeMs;
-    return mtimeAdvanced || lastRead.sizeBytes !== currentRead.sizeBytes;
-  }
-
-  if (lastRead.sizeBytes !== undefined && lastRead.sizeBytes !== currentRead.sizeBytes) {
-    return true;
-  }
-
-  const currentRevisionId = currentRead.revision?.id;
-  return Boolean(
-    lastRead.revisionId && currentRevisionId && lastRead.revisionId !== currentRevisionId,
-  );
+  // FORK(edit-stale-guard): 已读资格与目标匹配分开；写回仍携带执行时 revision，保留读写间冲突检查。
+  return undefined;
 }
 
 async function writeEditResult(input: {

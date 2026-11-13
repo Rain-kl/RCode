@@ -26,7 +26,9 @@ describe("read file state hydrator", () => {
           completedToolPart(sessionID, "assistant-full-read", "tool-read", "Read", {
             input: { file_path: "src/index.ts" },
             output: "1\texport const answer = 42;\n2\t",
-            metadata: readStateMetadata(file, "export const answer = 42;\n"),
+            metadata: readStateMetadata(file, "export const answer = 42;\n", {
+              contentHash: "sha256:historical",
+            }),
           }),
         ]),
       ],
@@ -45,6 +47,7 @@ describe("read file state hydrator", () => {
       offset: undefined,
       path: file,
       restoredFromSession: true,
+      contentHash: "sha256:historical",
       revisionId: `rev:${file}:${Buffer.byteLength("export const answer = 42;\n", "utf8")}:1`,
     });
   });
@@ -723,6 +726,7 @@ function readStateMetadata(
   filePath: string,
   content: string,
   options: {
+    contentHash?: string;
     isPartialView?: boolean;
     limit?: number;
     offset?: number;
@@ -735,6 +739,7 @@ function readStateMetadata(
   return {
     readFileState: {
       content,
+      ...(options.contentHash === undefined ? {} : { contentHash: options.contentHash }),
       isPartialView: options.isPartialView ?? false,
       ...(options.limit === undefined ? {} : { limit: options.limit }),
       mtimeMs: 1,

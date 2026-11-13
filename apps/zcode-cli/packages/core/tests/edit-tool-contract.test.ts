@@ -503,7 +503,7 @@ describe("Edit tool contract", () => {
     expect(fs.files.get(file)).toBe("updated content");
   });
 
-  it("rejects range reads when normalized mtime advances", async () => {
+  it("allows range reads when only normalized mtime advances", async () => {
     const file = join(tmpDir, "mtime-advanced-range.txt");
     const fs = createMemoryFileSystem({ [file]: "target content" });
     fs.setMtime(file, 1001);
@@ -517,15 +517,10 @@ describe("Edit tool contract", () => {
 
     await expect(
       editHandler({ file_path: file, old_string: "target", new_string: "updated" }, context),
-    ).resolves.toMatchObject({
-      result: false,
-      errorCode: 7,
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
-    });
+    ).resolves.toMatchObject({ filePath: file });
   });
 
-  it("rejects range reads when file size changes inside the same millisecond", async () => {
+  it("preserves unrelated size changes inside the same millisecond", async () => {
     const file = join(tmpDir, "size-changed-range.txt");
     const fs = createMemoryFileSystem({ [file]: "target content" });
     fs.files.set(file, "target content!");
@@ -540,15 +535,10 @@ describe("Edit tool contract", () => {
 
     await expect(
       editHandler({ file_path: file, old_string: "target", new_string: "updated" }, context),
-    ).resolves.toMatchObject({
-      result: false,
-      errorCode: 7,
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
-    });
+    ).resolves.toMatchObject({ filePath: file });
   });
 
-  it("rejects stale edits when content changed after the cached read", async () => {
+  it("preserves unrelated content changed after the cached read", async () => {
     const file = join(tmpDir, "stale.txt");
     const fs = createMemoryFileSystem({ [file]: "old content" });
     const context = contextWith(fs, { readFileState: createReadFileState(file, "old content") });
@@ -557,15 +547,10 @@ describe("Edit tool contract", () => {
 
     await expect(
       editHandler({ file_path: file, old_string: "old", new_string: "new" }, context),
-    ).resolves.toMatchObject({
-      result: false,
-      errorCode: 7,
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
-    });
+    ).resolves.toMatchObject({ filePath: file });
   });
 
-  it("allows mtime-only changes for offset-1 full reads but rejects later range stale fallbacks", async () => {
+  it("allows mtime-only changes for full reads and range reads", async () => {
     const fullReadFile = join(tmpDir, "mtime-only.txt");
     const offsetOneReadFile = join(tmpDir, "mtime-offset-one.txt");
     const offsetRangeReadFile = join(tmpDir, "mtime-offset-range.txt");
@@ -612,12 +597,7 @@ describe("Edit tool contract", () => {
         { file_path: offsetRangeReadFile, old_string: "target", new_string: "updated" },
         offsetRangeContext,
       ),
-    ).resolves.toMatchObject({
-      result: false,
-      errorCode: 7,
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
-    });
+    ).resolves.toMatchObject({ filePath: offsetRangeReadFile });
   });
 
   it("returns old_string not found and ambiguous-match messages", async () => {

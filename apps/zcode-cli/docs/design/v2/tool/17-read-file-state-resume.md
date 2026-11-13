@@ -143,3 +143,7 @@ resume 恢复优先级：
   context 初始化重新写入。
 - 同一文件多次读取只留一条记录，查找不遍历整张表。
 - Windows drive-letter path normalization 保持现有行为。
+
+## 内容版本恢复
+
+新快照保存可选原始字节内容哈希，恢复后与 live read-state 使用同一版本基线。schemaVersion 保持 1，旧记录缺少该字段时仍可恢复；旧版本读取时忽略附加字段。
