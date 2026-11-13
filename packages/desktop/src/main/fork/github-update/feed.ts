@@ -14,7 +14,7 @@ import type { ElectronReleaseChannel } from "@zcode/shared";
 
 /** 发布仓库；改这里即可把更新源指到别的 fork。 */
 export const FORK_GITHUB_UPDATE_OWNER = "Rain-kl";
-export const FORK_GITHUB_UPDATE_REPO = "ZCode";
+export const FORK_GITHUB_UPDATE_REPO = "RCode";
 
 /** preview 通道的固定 Release tag；发布时更新到当前提交并重建 Release。 */
 export const FORK_GITHUB_UPDATE_PREVIEW_TAG = "canary-build";

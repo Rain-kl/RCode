@@ -36,7 +36,7 @@
 
 ### 远端与同步
 
-- `origin` = 本项目 fork（可写）；`upstream` = 上游 `zai-org/ZCode`（只读）。
+- `origin` = 独立仓库 `Rain-kl/RCode`（可写）；`upstream` = 上游 `zai-org/ZCode`（只读）。
 - 同步用 `git fetch upstream && git merge upstream/main`，不改写已推送的提交历史。`canary` 是集成分支，推送即触发集成构建。
 - 同步前确认工作区干净，并在独立分支上解决冲突；同步后按「同步与冲突解决」收尾。
 

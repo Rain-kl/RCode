@@ -734,7 +734,7 @@ describe("autoUpdater ready state sync", () => {
     expect(autoUpdaterMock.setFeedURL).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "generic",
-        url: "https://github.com/Rain-kl/ZCode/releases/latest/download/",
+        url: "https://github.com/Rain-kl/RCode/releases/latest/download/",
       }),
     );
   });

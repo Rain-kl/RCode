@@ -21,7 +21,7 @@ describe("remoteCdn", () => {
         version: "0.0.0-test",
       }),
     ).toEqual([
-      "https://github.com/Rain-kl/ZCode/releases/download/server-v0.0.0-test",
+      "https://github.com/Rain-kl/RCode/releases/download/server-v0.0.0-test",
     ]);
   });
 
@@ -46,20 +46,20 @@ describe("remoteCdn", () => {
         version: "0.0.0-test",
       }),
     ).toEqual([
-      "https://github.com/Rain-kl/ZCode/releases/download/server-v0.0.0-test",
+      "https://github.com/Rain-kl/RCode/releases/download/server-v0.0.0-test",
     ]);
   });
 
   it("canary 复用固定 Server Release，正式版仍锁定版本 Release", () => {
     for (const version of ["3.17.162-dev.084c4811", "3.17.162-dev.12345678"]) {
       expect(resolveRemoteCdnBaseUrls({ env: "production", version })).toEqual([
-        "https://github.com/Rain-kl/ZCode/releases/download/server-canary-build",
+        "https://github.com/Rain-kl/RCode/releases/download/server-canary-build",
       ]);
     }
     expect(
       resolveRemoteCdnBaseUrls({ env: "production", version: "3.17.162" }),
     ).toEqual([
-      "https://github.com/Rain-kl/ZCode/releases/download/server-v3.17.162",
+      "https://github.com/Rain-kl/RCode/releases/download/server-v3.17.162",
     ]);
   });
 

@@ -25,7 +25,7 @@ describe("fork upstream request boundary", () => {
     "https://cdn.codegeex.cn/zcode/electron/releases/3.0/node.tar.gz",
     "https://zcode.z.ai/docs",
     "https://zcode.z.ai/api/v1/client/scenes",
-    "https://github.com/Rain-kl/ZCode/releases/latest/download/latest.yml",
+    "https://github.com/Rain-kl/RCode/releases/latest/download/latest.yml",
     "https://my-provider.example/v1/messages",
     "http://127.0.0.1:8080/webdav/",
   ])("retains %s", (url) => expect(isUpstreamRequestAllowed(url)).toBe(true));

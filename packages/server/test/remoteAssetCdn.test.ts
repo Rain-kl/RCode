@@ -7,7 +7,7 @@ import {
 
 describe("remoteAssetCdn URL encoding", () => {
   it("GitHub Release 资产直接位于 tag 下，不再拼接版本目录", () => {
-    const base = "https://github.com/Rain-kl/ZCode/releases/download/server-v3.17.162-dev.12345678";
+    const base = "https://github.com/Rain-kl/RCode/releases/download/server-v3.17.162-dev.12345678";
     expect(buildReleaseBaseCandidates([base], "3.17.162-dev.12345678")).toEqual([base]);
     expect(
       buildReleaseAssetUrlCandidates(buildReleaseBaseCandidates([base], "3.17.162-dev.12345678"), [

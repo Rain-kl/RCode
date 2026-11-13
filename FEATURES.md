@@ -306,6 +306,13 @@
 
 ## GitHub 更新通道 (github-update)
 
+### RCode 独立发布仓库（2026-11-13）
+
+- **需求与行为**：v3.20.171 起使用独立仓库 Rain-kl/RCode，桌面 stable/preview、Server 下载和安装脚本统一切换；旧版用户手动安装一次后进入新更新源，继续使用原应用数据和 Android 签名。
+- **修改位置**：桌面 github-update feed、Server 安装脚本、发布版本与 Android 版本码、README 与发布规格；feed 位于既有 fork 目录，发布工具改动由提交记录。
+- **设计与验证**：[更新设计](docs/features/github-update/design.md)、[发布规格](docs/specs/desktop-release.md)、[实现记录](docs/features/github-update/implementation.md)。
+
+
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：继续使用 GitHub feed 与精确 source-server release 版本，不恢复 ManifestUpdateProvider/强更端点；合入启动参数边界加固。用户确认 Windows 自动更新继续允许未签名安装包，不采用上游强制 Authenticode 策略，运行时与打包配置保持一致。处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 
 ### 远程 Server 从 GitHub 配套发布（2026-11-02）

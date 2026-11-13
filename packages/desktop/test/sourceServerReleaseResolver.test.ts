@@ -293,7 +293,7 @@ describe("Source Server release resolver", () => {
   });
 
   it("GitHub descriptor 404 保留 HTTP 状态，URL 遵循连接日志脱敏边界", async () => {
-    const base = `https://github.com/Rain-kl/ZCode/releases/download/server-v${ZCODE_VERSION}`;
+    const base = `https://github.com/Rain-kl/RCode/releases/download/server-v${ZCODE_VERSION}`;
     const fetchImpl = vi.fn<typeof fetch>(
       async () => new Response("missing", { status: 404 }),
     );

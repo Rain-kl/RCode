@@ -1,5 +1,7 @@
 # ZCode
 
+本项目在 [Rain-kl/RCode](https://github.com/Rain-kl/RCode) 独立维护。自 v3.20.171 起，安装包、自动更新和 Server 下载统一发布到新仓库。旧版用户手动安装本版后即可使用新更新源。
+
 <div align="center">
   <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
 </div>
@@ -115,10 +117,10 @@ Web 模式默认工作目录为当前目录，监听 `127.0.0.1`，默认不启�
 
 ```bash
 # 正式版（最新稳定版本）
-curl -fsSL https://raw.githubusercontent.com/Rain-kl/ZCode/canary/scripts/install-server.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Rain-kl/RCode/canary/scripts/install-server.sh | sh
 
 # 开发版（最新 canary 集成版本）
-curl -fsSL https://raw.githubusercontent.com/Rain-kl/ZCode/canary/scripts/install-server.sh | sh -s -- dev
+curl -fsSL https://raw.githubusercontent.com/Rain-kl/RCode/canary/scripts/install-server.sh | sh -s -- dev
 ```
 
 脚本从 GitHub Releases 下载与系统、架构对应的完整 Server 包，校验后调用与桌面 SSH 安装相同的安装接口。统一目录为 `~/.zcode/server`：运行包在 `releases/`，当前版本由 `current.json` 管理，稳定入口为 `bin/zcode`；`~/.local/bin/zcode` 仅转发到该入口。若命令目录不在 PATH，按脚本提示配置，例如：

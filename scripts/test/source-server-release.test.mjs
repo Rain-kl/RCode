@@ -134,7 +134,7 @@ test("publishes dev to the fixed canary release and removes historical dev relea
     return "";
   };
   await publishSourceServerRelease(
-    { dir: f.dir, version, repo: "Rain-kl/ZCode", commit: "12345678" },
+    { dir: f.dir, version, repo: "Rain-kl/RCode", commit: "12345678" },
     run,
   );
   assert.deepEqual(calls[1].slice(0, 4), [
@@ -150,7 +150,7 @@ test("publishes dev to the fixed canary release and removes historical dev relea
   const moveTag = calls.find(
     (args) =>
       args[0] === "api" &&
-      args.includes("repos/Rain-kl/ZCode/git/refs/tags/server-canary-build"),
+      args.includes("repos/Rain-kl/RCode/git/refs/tags/server-canary-build"),
   );
   assert.ok(moveTag);
   assert.ok(moveTag.includes("sha=12345678"));
@@ -184,7 +184,7 @@ test("a stable public release is verified without overwriting or moving its tag"
     {
       dir: f.dir,
       version: stableVersion,
-      repo: "Rain-kl/ZCode",
+      repo: "Rain-kl/RCode",
       commit: "12345678",
     },
     async (args) => {
@@ -197,7 +197,7 @@ test("a stable public release is verified without overwriting or moving its tag"
   );
   assert.deepEqual(
     calls.map((args) => args[1]),
-    ["repos/Rain-kl/ZCode/releases/tags/server-v3.17.162", "download"],
+    ["repos/Rain-kl/RCode/releases/tags/server-v3.17.162", "download"],
   );
 });
 
@@ -206,7 +206,7 @@ test("GitHub authorization failures never fall back to creating a release", asyn
   let count = 0;
   await assert.rejects(
     publishSourceServerRelease(
-      { dir: f.dir, version, repo: "Rain-kl/ZCode", commit: "12345678" },
+      { dir: f.dir, version, repo: "Rain-kl/RCode", commit: "12345678" },
       async () => {
         count++;
         throw new Error("gh: Forbidden (HTTP 403)");
@@ -223,7 +223,7 @@ test("CI rerun reuses an already published archive instead of rebuilding timesta
   const calls = [];
   assert.equal(
     await reuseSourceServerRelease(
-      { dir: destination, version, repo: "Rain-kl/ZCode" },
+      { dir: destination, version, repo: "Rain-kl/RCode" },
       async (args) => {
         calls.push(args);
         if (args[0] === "api") return JSON.stringify({ draft: false });
@@ -236,7 +236,7 @@ test("CI rerun reuses an already published archive instead of rebuilding timesta
   assert.equal(calls.length, 2);
   assert.equal(
     await reuseSourceServerRelease(
-      { dir: destination, version, repo: "Rain-kl/ZCode" },
+      { dir: destination, version, repo: "Rain-kl/RCode" },
       async () => JSON.stringify({ draft: true }),
     ),
     false,
@@ -248,7 +248,7 @@ test("a different dev version is not reused from the fixed canary release", asyn
   const destination = join(old.root, "reused-new-version");
   assert.equal(
     await reuseSourceServerRelease(
-      { dir: destination, version, repo: "Rain-kl/ZCode" },
+      { dir: destination, version, repo: "Rain-kl/RCode" },
       async (args) => {
         if (args[0] === "api") return JSON.stringify({ draft: false });
         await cp(old.dir, destination, { recursive: true });
@@ -288,7 +288,7 @@ test("an existing public release with different verified content fails closed", 
       {
         dir: f.dir,
         version: stableVersion,
-        repo: "Rain-kl/ZCode",
+        repo: "Rain-kl/RCode",
         commit: "12345678",
       },
       async (args) => {

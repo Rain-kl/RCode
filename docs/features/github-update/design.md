@@ -1,5 +1,9 @@
 # GitHub 更新通道 (github-update) 设计
 
+## v3.20.171 仓库迁移
+
+更新与下载仓库改为独立的 `Rain-kl/RCode`。stable 使用 RCode 的最新正式版，preview 使用 RCode 的 canary-build，Source Server 使用对应 server-v 版本与 server-canary-build。旧版用户手动安装本版后进入新通道。应用标识与用户数据归属保持连续。
+
 ## 背景
 
 上游桌面端的自动更新走服务端 manifest：
@@ -59,17 +63,17 @@ $ curl -sSL https://github.com/Rain-kl/ZCode/releases.atom | grep -o '/releases/
 GitHub 的 `releases/latest` 由 GitHub 自己定义为「最新的**非** prerelease、非 draft 发布」，语义确定：
 
 ```
-$ curl -sSI https://github.com/Rain-kl/ZCode/releases/latest/download/latest.yml
+$ curl -sSI https://github.com/Rain-kl/RCode/releases/latest/download/latest.yml
 HTTP/2 302
-location: https://github.com/Rain-kl/ZCode/releases/download/v3.14.3/latest.yml
+location: https://github.com/Rain-kl/RCode/releases/download/v3.14.3/latest.yml
 ```
 
 因此用 electron-updater 的 generic provider，把基址指向该别名即可，不解析 feed、不做版本排序：
 
 | 通道    | 触发条件                                 | 基址                                                               | channel 文件（win / mac）       |
 | ------- | ---------------------------------------- | ------------------------------------------------------------------ | ------------------------------- |
-| stable  | `receivePreviewUpdates !== true`（默认） | `https://github.com/Rain-kl/ZCode/releases/latest/download/`       | `latest.yml` / `latest-mac.yml` |
-| preview | `receivePreviewUpdates === true`         | `https://github.com/Rain-kl/ZCode/releases/download/canary-build/` | `dev.yml` / `dev-mac.yml`       |
+| stable  | `receivePreviewUpdates !== true`（默认） | `https://github.com/Rain-kl/RCode/releases/latest/download/`       | `latest.yml` / `latest-mac.yml` |
+| preview | `receivePreviewUpdates === true`         | `https://github.com/Rain-kl/RCode/releases/download/canary-build/` | `dev.yml` / `dev-mac.yml`       |
 
 **基址必须以 `/` 结尾**：electron-updater 用 `new URL(相对路径, base)` 解析 metadata 与资产 URL，
 基址不带尾斜杠时最后一个路径段会被当成文件名丢掉，`.../latest/download` 会被解析成 `.../latest/<asset>`（404）。

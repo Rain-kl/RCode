@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.20.171](https://github.com/Rain-kl/RCode/releases/tag/v3.20.171) (2026-11-13)
+
+- 发布仓库迁移到独立的 Rain-kl/RCode，桌面更新、Server 安装与下载统一使用新仓库；旧版用户手动安装一次完成迁移。
+- 修复子代理输入不可见、完成后主代理未唤醒和执行历史入口消失；wait_agent 改为立即让出轮次。
+- Android 沿用原签名，并使用基于产品版本的版本码，支持从旧仓库版本覆盖升级。
+
 ## [3.17.162](https://github.com/Rain-kl/ZCode/compare/v3.16.162...v3.17.162) (2026-10-24)
 
 - 切断匿名营销活动、广告素材及动作追踪；停用 ARMS、应用埋点和 OTLP 导出。

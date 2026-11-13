@@ -21,7 +21,7 @@ import sys
 import tarfile
 import tempfile
 
-REPO = "Rain-kl/ZCode"
+REPO = "Rain-kl/RCode"
 DOWNLOADS = "https://github.com/" + REPO + "/releases/download"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?")
 

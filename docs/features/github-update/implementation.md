@@ -214,3 +214,9 @@ applyForkGithubUpdateFeed(updater, { channel }); // 同时写 allowPrerelease / 
 - 连接前安装检查与握手后的双端比较共享同一渠道判定，避免只修一处后另一处继续拦截。
 - 开发渠道不再因两个提交哈希的字典序显示升级要求；缺少 compatibility manifest 的旧 Server 仍 fail closed。
 - 回归覆盖 `3.17.162-dev.c1ea55a4` 连接更旧/更高哈希 dev Server 均放行，以及正式版旧 Server 仍被拒绝。
+
+## 2026-11-13：RCode 独立仓库
+
+更新源与 Server 安装地址切换到 Rain-kl/RCode。桌面版本事实源为 3.20.171；Android 版本码与产品版本绑定，避免迁移仓库后 Actions 计数回落。原应用身份和签名沿用，旧版用户手动安装本版进入新更新通道。
+
+本地更新源、安装器和发布契约通过，根类型检查、Lint、架构与移除守卫通过。发布产物与在线通道验收随 v3.20.171 完成记录。

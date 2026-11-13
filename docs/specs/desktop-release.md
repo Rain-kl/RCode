@@ -3,6 +3,16 @@
 范围：`.github/workflows/release.yml`、`.github/workflows/publish-release.yml` 与 `scripts/ci/release-version.mjs`。
 覆盖 macOS（arm64）、Windows（x64）桌面包与 Android APK的构建与 GitHub Release 发布。Source Server 使用独立流水线，合同见 [Source Server 发布](source-server-release.md)。
 
+## RCode 发布仓库（v3.20.171 起）
+
+公开源码与发布仓库为 `Rain-kl/RCode`，GitHub 仓库独立于原 fork 网络。Desktop 与 Android 的正式发布为 `v3.20.171`，Source Server 使用 `server-v3.20.171`。stable、preview、Server 下载及安装脚本统一使用 RCode。
+
+应用标识、数据目录和 Android 签名延续已有身份，安装新版本后继续使用现有数据。旧版用户手动安装本版完成迁移，随后从 RCode 获取更新。
+
+Android 的显示版本与根版本一致，安装版本码由正式版本号生成，避免新仓库的 Actions 计数重置造成降级。版本码按 major、minor、patch 的字典序递增，minor 与 patch 各保留三位，必须为有效的正 Android 版本码；预览版本使用其基础版本的相同版本码。
+
+验收：新仓库 fork=false；更新索引及全部资产 URL 指向 RCode；正式发布含桌面包、APK、校验和与更新元数据；Server 描述符及四平台归档可下载；APK 签名与原版一致且版本码高于旧仓库构建；程序版本与 tag 一致。
+
 ## 通道与触发
 
 | 通道     | 触发条件                              | 版本                                | Release                                                                           |

@@ -18,7 +18,7 @@ import { resolveFiles } from "electron-updater/out/providers/Provider.js";
  * 再更新 import 路径，不要在没确认的情况下改断言。
  */
 
-const FEED_URL = "https://github.com/Rain-kl/ZCode/releases/latest/download/";
+const FEED_URL = "https://github.com/Rain-kl/RCode/releases/latest/download/";
 
 /** 只提供 provider 会读到的成员，避免把 Electron 的 AppUpdater 拖进单测。 */
 const updaterStub = { channel: null, isAddNoCacheQuery: false };
@@ -97,11 +97,11 @@ test("资产相对路径按 feed 基址解析，基址必须带尾斜杠", () =>
   // 钉住它，防止以后有人「顺手」把 feed.ts 里的尾斜杠去掉。
   const withoutTrailingSlash = resolveFiles(
     updateInfo,
-    new URL("https://github.com/Rain-kl/ZCode/releases/latest/download"),
+    new URL("https://github.com/Rain-kl/RCode/releases/latest/download"),
   );
   assert.equal(
     withoutTrailingSlash[0].url.href,
-    "https://github.com/Rain-kl/ZCode/releases/latest/ZCode-3.14.4-mac-arm64.zip",
+    "https://github.com/Rain-kl/RCode/releases/latest/ZCode-3.14.4-mac-arm64.zip",
   );
 });
 

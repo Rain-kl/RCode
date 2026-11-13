@@ -50,9 +50,9 @@ pnpm --filter @zcode/fork-remote-relay exec wrangler secret put AUTH_EPOCH --con
 
 ```sh
 # 默认正式版；当前最新正式版无 Server companion 时明确失败
-curl -fsSL https://raw.githubusercontent.com/Rain-kl/ZCode/canary/scripts/install-server.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Rain-kl/RCode/canary/scripts/install-server.sh | sh
 # 开发版
-curl -fsSL https://raw.githubusercontent.com/Rain-kl/ZCode/canary/scripts/install-server.sh | sh -s -- dev
+curl -fsSL https://raw.githubusercontent.com/Rain-kl/RCode/canary/scripts/install-server.sh | sh -s -- dev
 export PATH="$HOME/.local/bin:$PATH"
 ```
 

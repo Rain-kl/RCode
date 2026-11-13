@@ -105,9 +105,9 @@ if (args[0] === 'update') {
   );
   const devIndex = join(root, "dev.yml");
   await writeFile(devIndex, `version: ${version}\nfiles:\n`);
-  const base = "https://github.com/Rain-kl/ZCode/releases/download";
+  const base = "https://github.com/Rain-kl/RCode/releases/download";
   const routes = {
-    "https://api.github.com/repos/Rain-kl/ZCode/releases/latest": latest,
+    "https://api.github.com/repos/Rain-kl/RCode/releases/latest": latest,
     [`${base}/canary-build/dev.yml`]: devIndex,
     [`${base}/${dev ? "server-canary-build" : `server-v${version}`}/source-server-release.json`]:
       descriptorPath,
@@ -324,7 +324,7 @@ test("unknown arguments and unsupported platforms fail before download", async (
 test("missing stable companion reports its URL and does not fall back to dev", async (t) => {
   const f = await fixture(t);
   delete f.routes[
-    `https://github.com/Rain-kl/ZCode/releases/download/server-v${f.version}/source-server-release.json`
+    `https://github.com/Rain-kl/RCode/releases/download/server-v${f.version}/source-server-release.json`
   ];
   f.env.ROUTES = JSON.stringify(f.routes);
   await assert.rejects(f.run(), /server-v3\.18\.0\/source-server-release.json/);

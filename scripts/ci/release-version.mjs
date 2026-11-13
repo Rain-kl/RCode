@@ -127,11 +127,21 @@ function setRootVersion(root, version) {
   return previousVersion;
 }
 
+export function androidVersionCode(version) {
+  const [major, minor, patch] = normalizeVersion(version).split("-")[0].split(".").map(Number);
+  const code = major * 1_000_000 + minor * 1_000 + patch;
+  // 仓库迁移后 run_number 会归零；按产品版本编码才能继续覆盖安装原签名 APK。
+  if (minor > 999 || patch > 999 || !Number.isSafeInteger(code) || code < 1 || code > 2_100_000_000)
+    fail(`Android 版本码超出支持范围: ${version}`);
+  return code;
+}
+
 function applyVersion(options) {
   const { version, channel } = resolveVersion(options);
+  const code = androidVersionCode(version);
   setRootVersion(options.root, version);
   // 机器可读输出：调用方直接 `>> "$GITHUB_OUTPUT"`。
-  process.stdout.write(`version=${version}\nchannel=${channel}\n`);
+  process.stdout.write(`version=${version}\nchannel=${channel}\nandroid_version_code=${code}\n`);
 }
 
 function loadAsar() {

@@ -15,8 +15,8 @@ import {
 } from "../src/main/fork/github-update/feed.js";
 
 const STABLE_BASE =
-  "https://github.com/Rain-kl/ZCode/releases/latest/download/";
-const PREVIEW_BASE = `https://github.com/Rain-kl/ZCode/releases/download/${FORK_GITHUB_UPDATE_PREVIEW_TAG}/`;
+  "https://github.com/Rain-kl/RCode/releases/latest/download/";
+const PREVIEW_BASE = `https://github.com/Rain-kl/RCode/releases/download/${FORK_GITHUB_UPDATE_PREVIEW_TAG}/`;
 
 test("stable 走 releases/latest/download，preview 走指针 Release", () => {
   assert.equal(
@@ -32,11 +32,11 @@ test("stable 走 releases/latest/download，preview 走指针 Release", () => {
 test("正式 Server 使用版本 Release，dev Server 使用固定 canary Release", () => {
   assert.equal(
     resolveForkGithubServerReleaseBaseUrl("3.17.162"),
-    "https://github.com/Rain-kl/ZCode/releases/download/server-v3.17.162",
+    "https://github.com/Rain-kl/RCode/releases/download/server-v3.17.162",
   );
   assert.equal(
     resolveForkGithubServerReleaseBaseUrl("3.17.162-dev.12345678"),
-    `https://github.com/Rain-kl/ZCode/releases/download/${FORK_GITHUB_SERVER_PREVIEW_TAG}`,
+    `https://github.com/Rain-kl/RCode/releases/download/${FORK_GITHUB_SERVER_PREVIEW_TAG}`,
   );
 });
 

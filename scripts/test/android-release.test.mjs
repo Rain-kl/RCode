@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { parse } from "yaml";
+import { androidVersionCode } from "../ci/release-version.mjs";
 
 test("Android SDK setup explicitly installs the current build packages", async () => {
-  const workflow = parse(await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8"));
+  const workflow = parse(
+    await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8"),
+  );
   for (const name of ["build-android", "android-tests"]) {
-    const setup = workflow.jobs[name].steps.find((step) => step.uses?.startsWith("android-actions/setup-android@"));
+    const setup = workflow.jobs[name].steps.find((step) =>
+      step.uses?.startsWith("android-actions/setup-android@"),
+    );
     // SDK 仓库已移除 tools，必须覆盖 action 的默认包清单，避免在编译前失败。
     assert.equal(typeof setup?.with?.packages, "string");
     const packages = setup.with.packages.trim().split(/\s+/u);
@@ -18,15 +23,47 @@ test("Android SDK setup explicitly installs the current build packages", async (
 });
 
 test("Android signed APK is required for release and included in checksums", async () => {
-  const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  const workflow = await readFile(
+    new URL("../../.github/workflows/release.yml", import.meta.url),
+    "utf8",
+  );
   assert.match(workflow, /build-android:[\s\S]*:app:assembleRelease/u);
   assert.match(workflow, /needs\.build-android\.result == 'success'/u);
   assert.match(workflow, /needs\.android-tests\.result == 'success'/u);
-  const publisher = await readFile(new URL("../../.github/workflows/publish-release.yml", import.meta.url), "utf8");
+  const publisher = await readFile(
+    new URL("../../.github/workflows/publish-release.yml", import.meta.url),
+    "utf8",
+  );
   assert.match(publisher, /android-apk/u);
   assert.doesNotMatch(publisher, /android-\*/u);
   assert.match(publisher, /-name '\*\.apk'/u);
-  for (const key of ["ANDROID_KEYSTORE_BASE64", "ANDROID_STORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"]) {
+  for (const key of [
+    "ANDROID_KEYSTORE_BASE64",
+    "ANDROID_STORE_PASSWORD",
+    "ANDROID_KEY_ALIAS",
+    "ANDROID_KEY_PASSWORD",
+  ]) {
     assert.ok(workflow.includes(`secrets.${key}`));
   }
+});
+
+test("Android version codes survive repository migration and follow the product version", async () => {
+  const workflow = parse(
+    await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    workflow.jobs.resolve.outputs.android_version_code,
+    "${{ steps.version.outputs.android_version_code }}",
+  );
+  const build = workflow.jobs["build-android"].steps.find(
+    (step) => step.name === "Build signed Android APK",
+  );
+  assert.equal(
+    build.env.ZCODE_ANDROID_VERSION_CODE,
+    "${{ needs.resolve.outputs.android_version_code }}",
+  );
+  assert.equal(androidVersionCode("3.20.171"), 3020171);
+  assert.equal(androidVersionCode("3.20.171-dev.12345678"), 3020171);
+  assert.ok(androidVersionCode("3.20.171") > androidVersionCode("3.19.999"));
+  assert.ok(androidVersionCode("4.0.0") > androidVersionCode("3.999.999"));
 });

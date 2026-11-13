@@ -70,6 +70,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       channel: ${{ steps.version.outputs.channel }}
+      android_version_code: ${{ steps.version.outputs.android_version_code }}
       version: ${{ steps.version.outputs.version }}
       release_tag: ${{ steps.version.outputs.release_tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -504,10 +505,10 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36.1 build-tools;36.1.0'
+          packages: "platform-tools platforms;android-36.1 build-tools;36.1.0"
       - name: Test Android
         working-directory: packages/android
         run: ./gradlew :app:testDebugUnitTest
@@ -550,11 +551,11 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
       - uses: android-actions/setup-android@v3
         with:
           # SDK 仓库已移除 tools；覆盖 action 默认包清单，统一安装当前构建依赖。
-          packages: 'platform-tools platforms;android-36.1 build-tools;36.1.0'
+          packages: "platform-tools platforms;android-36.1 build-tools;36.1.0"
       - name: Prepare Android signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -570,7 +571,7 @@ jobs:
           ZCODE_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ZCODE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ZCODE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ZCODE_ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ZCODE_ANDROID_VERSION_CODE: ${{ needs.resolve.outputs.android_version_code }}
           ZCODE_ANDROID_VERSION_NAME: ${{ needs.resolve.outputs.version }}
         run: ./gradlew :app:assembleRelease
       - name: Upload Android artifact

@@ -1,5 +1,7 @@
 # ZCode
 
+This project is maintained independently at [Rain-kl/RCode](https://github.com/Rain-kl/RCode). Starting with v3.20.171, installers, updates, and Server downloads are published there. Install this version once to migrate from the previous update source.
+
 <div align="center">
   <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
 </div>
