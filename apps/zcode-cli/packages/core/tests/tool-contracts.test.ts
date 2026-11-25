@@ -48,7 +48,7 @@ const DIRECT_BRANCH_EXPECTED_PROVIDER_TOOL_ORDER = [
   "interrupt_agent",
   "list_agents",
   "wait_agent",
-  "ReadSessionContext",
+  "ReadTopicResource",
   "ReplyToChannel",
   "CreateWorkflow",
   // 修订入口紧随 CreateWorkflow 注册（docs/dynamic-workflow/launch.md「The `AmendWorkflow` tool」）。
@@ -131,6 +131,7 @@ describe("tool contract declarations", () => {
       includeCollaboration: true,
 
       includeSkill: true,
+      includeTopicResource: true,
     });
     expect(directRegistry.list().slice(0, 4)).toEqual([
       "ToolSearch",
@@ -148,6 +149,7 @@ describe("tool contract declarations", () => {
       includeCollaboration: true,
 
       includeSkill: true,
+      includeTopicResource: true,
     });
     expect(
       orderProviderVisibleToolContracts(embeddedRegistry.toContracts()).map((tool) => tool.name),
@@ -162,9 +164,9 @@ describe("tool contract declarations", () => {
         { name: "TodoRead" },
         { name: "Task" },
         { name: "Read" },
-        { name: "ReadSessionContext" },
+        { name: "ReadTopicResource" },
       ]).map((tool) => tool.name),
-    ).toEqual(["Bash", "Read", "TodoRead", "TodoWrite", "Task", "ReadSessionContext"]);
+    ).toEqual(["Bash", "Read", "TodoRead", "TodoWrite", "Task", "ReadTopicResource"]);
   });
 
   it("sorts MCP tools by name after the local-only tools", () => {
@@ -173,14 +175,14 @@ describe("tool contract declarations", () => {
         { name: "mcp__beta__search" },
         { name: "Bash" },
         { name: "mcp__alpha__write" },
-        { name: "ReadSessionContext" },
+        { name: "ReadTopicResource" },
         { name: "mcp__alpha__read" },
         { name: "Read" },
       ]).map((tool) => tool.name),
     ).toEqual([
       "Bash",
       "Read",
-      "ReadSessionContext",
+      "ReadTopicResource",
       "mcp__alpha__read",
       "mcp__alpha__write",
       "mcp__beta__search",
@@ -214,10 +216,10 @@ describe("tool contract declarations", () => {
       orderProviderVisibleToolContracts([
         { name: "Write" },
         { name: "Workflow" },
-        { name: "ReadSessionContext" },
+        { name: "ReadTopicResource" },
         { name: "WebSearch" },
       ]).map((tool) => tool.name),
-    ).toEqual(["WebSearch", "Workflow", "Write", "ReadSessionContext"]);
+    ).toEqual(["WebSearch", "Workflow", "Write", "ReadTopicResource"]);
   });
 
   it("matches source-derived provider-visible schema facts for supported tools", () => {
@@ -426,15 +428,17 @@ describe("tool contract declarations", () => {
       [
         "Executes a bash command and returns its output.",
         "",
-        "- Working directory persists between calls, but prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist; the shell is initialized from the user's profile.",
+        "- `cd` carries to the next call only in the main session, if the command succeeds and ends inside the working directories. Outside them the shell returns to the start folder; otherwise it stays where it was. Prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist; the shell is initialized from the user's profile.",
         "- IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.",
         "- Command output is displayed to you, not reliably to the user.",
+        "- Workspace-controlled adb executables are blocked. Installed SDK adb outside the workspace is allowed; bare adb resolves through SDK paths and absolute PATH entries. Use an SDK absolute path if it is only configured in shell startup files. Android MCP tools are optional.",
         "- `timeout` is in milliseconds: default 120000, max 600000 for a foreground command.",
-        "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed.",
+        "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed. Foreground `sleep` of 25 seconds or more is blocked; to wait on a condition, run an until-loop with `run_in_background`.",
         "",
         "# Git",
         "- Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported in this environment.",
         "- Use the `gh` CLI for GitHub operations (PRs, issues, API).",
+        "- GitHub notifies the owner of any `@name` written in a PR, issue, or comment. Write a bare `@name` only for a real login you mean to notify. Put roles, placeholders, and code (`@human`, `@reviewer`, `@types/node`) in backticks or drop the `@`, even when copied from project files.",
         "- Commit or push only when the user asks. If on the default branch, branch first.",
       ].join("\n"),
     );
@@ -724,15 +728,17 @@ describe("tool contract declarations", () => {
       [
         "Executes a bash command and returns its output.",
         "",
-        "- Working directory persists between calls, but prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist; the shell is initialized from the user's profile.",
+        "- `cd` carries to the next call only in the main session, if the command succeeds and ends inside the working directories. Outside them the shell returns to the start folder; otherwise it stays where it was. Prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist; the shell is initialized from the user's profile.",
         "- IMPORTANT: Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.",
         "- Command output is displayed to you, not reliably to the user.",
+        "- Workspace-controlled adb executables are blocked. Installed SDK adb outside the workspace is allowed; bare adb resolves through SDK paths and absolute PATH entries. Use an SDK absolute path if it is only configured in shell startup files. Android MCP tools are optional.",
         "- `timeout` is in milliseconds: default 120000, max 600000 for a foreground command.",
-        "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed.",
+        "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed. Foreground `sleep` of 25 seconds or more is blocked; to wait on a condition, run an until-loop with `run_in_background`.",
         "",
         "# Git",
         "- Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported in this environment.",
         "- Use the `gh` CLI for GitHub operations (PRs, issues, API).",
+        "- GitHub notifies the owner of any `@name` written in a PR, issue, or comment. Write a bare `@name` only for a real login you mean to notify. Put roles, placeholders, and code (`@human`, `@reviewer`, `@types/node`) in backticks or drop the `@`, even when copied from project files.",
         "- Commit or push only when the user asks. If on the default branch, branch first.",
       ].join("\n"),
     );
@@ -761,6 +767,23 @@ describe("tool contract declarations", () => {
     );
     expect(explorePrompt).not.toContain("Use Glob for broad file pattern matching");
     expect(explorePrompt).not.toContain("Use Grep for searching file contents with regex");
+  });
+
+  it("keeps the supported Bash provider-visible input schema descriptions", () => {
+    const registry = createToolRegistry();
+    registerBuiltInTools(registry, { includeCollaboration: true });
+    const byName = new Map(registry.toContracts().map((contract) => [contract.name, contract]));
+    const bashInput = byName.get("Bash")?.inputSchema as any;
+    expect(bashInput.properties.command.description).toBe("The command to execute");
+    expect(bashInput.properties.timeout.description).toBe(
+      "Optional timeout in milliseconds (max 600000 for a foreground command)",
+    );
+    expect(bashInput.properties.run_in_background.description).toBe(
+      "Set to true to run this command in the background.",
+    );
+    expect(bashInput.properties.dangerouslyDisableSandbox.description).toBe(
+      "Set this to true to dangerously override sandbox mode and run commands without sandboxing.",
+    );
   });
 
   it("aligns provider-visible hard schema diffs for P-12", () => {
@@ -1049,6 +1072,10 @@ describe("tool contract declarations", () => {
 
 function findProviderSchemaIssues(schema: Record<string, unknown>, path: string): string[] {
   const issues: string[] = [];
+  // Anthropic API 拒绝根节点上的组合关键字（400 “input_schema does not support oneOf, allOf, or anyOf at the top level”）。
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    if (key in schema) issues.push(`${path} uses ${key} at the top level`);
+  }
   scanProviderSchema(schema, path, issues);
   return issues;
 }
@@ -1061,7 +1088,8 @@ function scanProviderSchema(value: unknown, path: string, issues: string[]): voi
 
   if (!isRecord(value)) return;
 
-  for (const key of ["$id", "$ref", "$defs", "definitions", "anyOf"]) {
+  // union 与 nullable 统一写成 anyOf（docs/design/v2/tool/00-tool-change-chain.md「工具 JSON Schema 生成」），不出现 oneOf。
+  for (const key of ["$id", "$ref", "$defs", "definitions", "oneOf"]) {
     if (key in value) {
       issues.push(`${path} contains provider-internal key ${key}`);
     }
@@ -1088,7 +1116,7 @@ function scanProviderSchema(value: unknown, path: string, issues: string[]): voi
   }
   scanProviderSchema(value.items, `${path}.items`, issues);
   scanProviderSchema(value.additionalProperties, `${path}.additionalProperties`, issues);
-  scanProviderSchema(value.oneOf, `${path}.oneOf`, issues);
+  scanProviderSchema(value.anyOf, `${path}.anyOf`, issues);
   scanProviderSchema(value.allOf, `${path}.allOf`, issues);
 }
 

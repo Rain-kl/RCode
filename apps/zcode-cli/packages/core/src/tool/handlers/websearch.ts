@@ -6,6 +6,7 @@ import {
   CoreErrorType,
   WEBSEARCH_PROVIDER_NATIVE_SPEC,
   WEBSEARCH_TOOL_CONTRACT,
+  WEB_SEARCH_BUDGET_EXHAUSTED_ERROR_CODE,
   WebSearchInputJsonSchema,
   WebSearchInputSchema,
   WebSearchOutputJsonSchema,
@@ -21,7 +22,12 @@ import {
   type WebSearchInput,
   type WebSearchOutput,
 } from "@zcode/contracts";
-import type { ToolEntry, ToolHandler } from "../types.js";
+import type {
+  ToolEntry,
+  ToolHandler,
+  ToolHandlerFailure,
+  ToolInputValidationResult,
+} from "../types.js";
 import { auxiliaryModelOptions } from "../../model/auxiliary-model-options.js";
 import { buildWebSearchOutput, formatWebSearchModelContent } from "./websearch-results.js";
 import { webSearchTraceFromContext } from "./websearch-support.js";
@@ -40,6 +46,7 @@ export const WEBSEARCH_TOOL_NAME = "WebSearch";
 const PROVIDER_WEBSEARCH_TOOL_NAME = "web_search";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_USES = 8;
+const WEBSEARCH_DOMAIN_FILTER_CONFLICT_ERROR_CODE = 2;
 
 // 当前月份不写进描述：模型从会话里的当前日期得知月份，描述保持逐字节稳定，跨月不让 tools 缓存失效。
 export const WEBSEARCH_PROVIDER_DESCRIPTION = [
@@ -54,7 +61,19 @@ export const WEBSEARCH_PROVIDER_DESCRIPTION = [
 export function buildWebSearchProviderDescription(_now: Date = new Date()): string { return WEBSEARCH_PROVIDER_DESCRIPTION; }
 
 // FORK-BEGIN(search-providers): 将直接调用 provider-native 改为接入渠道链（服务端搜索为第一渠道，后接配置的外部渠道）；见 FEATURES.md 的 search-providers 条目
-const webSearchHandler: ToolHandler<WebSearchInput, WebSearchOutput> = async (input, context) => {
+const webSearchHandler: ToolHandler<WebSearchInput, WebSearchOutput | ToolHandlerFailure> = async (input, context) => {
+  // hook 改写后的输入不再经过 validateInput，这里用同一个检查再拒绝一次。
+  const invalid = validateWebSearchInput(input);
+  if (!invalid.result) return invalid;
+  // 动态工作流子代理的 per-ask 预算（docs: execution-engine.md「Search budget」）。
+  const charge = context.webSearchBudget?.charge();
+  if (charge?.kind === "exhausted") {
+    return {
+      result: false,
+      errorCode: WEB_SEARCH_BUDGET_EXHAUSTED_ERROR_CODE,
+      message: charge.message,
+    } satisfies ToolHandlerFailure;
+  }
   const startedAt = Date.now();
   const parsed = WebSearchInputSchema.parse(input);
 
@@ -167,11 +186,29 @@ async function executeProviderNativeSearch(
 }
 // FORK-END(search-providers)
 
+/**
+ * 修复原因：两种域名同时给出原来只由 runtime schema 的 refine 表达，handler 不解析输入，请求原样交给
+ * provider，本地不报错。规则与文字见 13-websearch.md；两个数组都非空才算同时给出。
+ */
+function validateWebSearchInput(input: unknown): ToolInputValidationResult {
+  const { allowed_domains: allowed, blocked_domains: blocked } = (input ?? {}) as {
+    allowed_domains?: unknown;
+    blocked_domains?: unknown;
+  };
+  if (!Array.isArray(allowed) || !Array.isArray(blocked) || !allowed.length || !blocked.length) {
+    return { result: true };
+  }
+  return {
+    result: false,
+    errorCode: WEBSEARCH_DOMAIN_FILTER_CONFLICT_ERROR_CODE,
+    message: "Error: Cannot specify both allowed_domains and blocked_domains in the same request",
+  };
+}
+
 export const webSearchToolEntry: ToolEntry = {
   ...WEBSEARCH_TOOL_CONTRACT,
   providerNative: undefined,
   metadata: {
-    shouldDefer: true,
     name: WEBSEARCH_TOOL_NAME,
     searchHint: "search the web for current information",
     description: WEBSEARCH_PROVIDER_DESCRIPTION,
@@ -185,6 +222,7 @@ export const webSearchToolEntry: ToolEntry = {
     needsApproval: false,
   },
   handler: webSearchHandler as ToolHandler,
+  validateInput: validateWebSearchInput,
   formatModelContent: formatWebSearchModelContent,
   inputSchema: WebSearchInputJsonSchema,
   outputSchema: WebSearchOutputJsonSchema,

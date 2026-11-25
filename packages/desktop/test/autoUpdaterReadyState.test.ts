@@ -90,6 +90,7 @@ autoUpdaterMock.installDirectory = null;
 autoUpdaterMock.downloadedUpdateHelper = null;
 
 vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
   spawn: spawnMock,
 }));
 

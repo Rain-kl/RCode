@@ -25,6 +25,7 @@
 
 ## 自建云端网页远控 (cloud-web-access)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：适配自建认证契约新增的 `zai_cn`、`getSessionRevision` 与 `subscribeSessionChange` 并在登录失败时回收状态；将 `SelfHostedRemoteLoginPage` 迁入 `packages/web/src/web-remote-control/ui/selfHostedRemoteLoginPage.tsx` 经 `views.ts` 导出并恢复 `packages/web/src/auth/WebLoginPage.tsx` 为上游基线，消除 `web-auth` 与 `web-remote-control` 环依赖。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **状态**：2026-11-04，Relay、Server 主动连接、Desktop 入口与网页项目会话闭环已实现；验收证据见功能文档。
 - **需求背景**：在云主机运行 ZCode Server 或让 ZCode Desktop 连接用户自建的 Cloudflare Worker/DO；两类设备都主动出站，手机或电脑浏览器以同一套单租户账号密码登录并远程操作现有项目、任务和 Agent。
 - **本期范围**：保持官方 Relay V2 与单 owner 语义；同 SID 新手机替换旧手机，旧端收到 `KICKED`。Relay 只负责认证、设备、一次性票据、配对、心跳和透明转发，不保存任务、快照、队列或业务正文。Server 复用既有 Core/Supervisor；Desktop 复用 Main 现有远控连接与 shared-host attachment；网页沿用现有手机远控 UI、缓存和离线行为。
@@ -84,6 +85,7 @@
 
 ## Codex 协作迁移与有界模型恢复 (codex-collaboration)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：保留六工具协作运行时与安全边界，继续隐藏并守卫删除的 `settings.agentAlwaysBackground` 设置项；在 `architecture-policy.yaml` 导出 `codex-collaboration-runtime` 的 `agent-listing.ts` 供 `context-composition` 使用，并使 `tool-search-subagent.test.ts` 对齐默认启用嵌入式搜索时的 Explore 工具集合。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留六工具与共享控制器唯一所有者；接入上游单 session closeOwnedWork/close 清理，旧 runner/四工具继续缺席，删除已无消费者的 `core/src/subagent/completion-notification.ts` 并登记移除守卫；运行中输入保持安全边界 guide，不采用上游 stop-then-start；用户确认 Retry-After 按上游接受最长 5 分钟的提示并增加最多 5 秒正向 jitter，普通退避仍最多 30 秒、共享预算仍最多 21 次物理请求；吸收 session features 与上下文投影修复。处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **状态**：2026-11-03，模型恢复、steer 安全边界、协作控制器、六工具/角色/真实 runtime/mailbox、客户端冷投影与旧展示入口清理均已实施，通过独立规格与质量审查。六工具真实桌面会话 CSC01 已验收；完整验证及未覆盖边界见实现文档。
 - **需求背景**：模型首次失败直接结束、流中途停止，以及 adapter/core/workflow 各自重试预算导致不可控恢复。
@@ -145,6 +147,7 @@
 
 ## 本地模式：去云账号 + WebDAV 配置同步 (local-mode)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：在 `local-mode` 下隐藏语音输入与分享管理入口并跳过 `IVoiceInputService` 注册；对 `cdn-zcode.z.ai` 与 `cdn.codegeex.cn` 上的 `/zcode/preinstalled-tools/` 开放只读 `GET`/`HEAD` 放行，并在 `extension-host`、`preinstalled-tools/process.ts` 与 `nodeApiNetwork.ts` 的 `createWebSocket` 接入 `upstream-network-policy/node` 检查；退役无消费的云端 Coding Plan 单测（`codingPlanSubscriptionService.test.ts` 与 `modelProviderCodingPlan.test.ts`），同步补充移除守卫与契约单测。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留上游请求策略与 ARMS 禁用；合入新版初始化过滤和远程服务接线。上游设备配置推送与本 fork WebDAV 备份用途不同，保持各自所有者。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 
 ### 禁用 ARMS 时保持启动可用（2026-11-02）
@@ -216,6 +219,7 @@
 
 ## 移除闲时任务入口 (offpeak-removal)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：继续保持闲时任务入口移除，既有工具面与端口移除守卫校验通过。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：继续移除闲时任务用户入口；合入生命周期内部清理而不恢复已删除入口，移除守卫验证。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **状态**：已实现（2026-09-29）：工具面与创建路径两处入口撤掉，其余实现保留为死代码。
 - **需求背景**：闲时任务（off-peak）要云端取号服务 + 账号上的 Coding Plan 连接才能用。本 fork 正在去云账号与 Coding Plan 体系（见 `local-mode`），用户只用自定义服务提供商，于是这个功能**永远无法创建**，却仍留在模型上下文里：宿主下发的灰度开关一旦为真，两个工具（描述 + 每个 8 条模型指令 + JSON Schema）就会进入**每一次**模型请求（实测本机会话的工具面里就有它们），token 买来的是一个必然失败的工具，模型也可能去调它并拿到「没有可用连接」这类无用失败。
@@ -233,6 +237,7 @@
 
 ## 功能组：工具模式与工具注入 (tool-modes)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：将 v4.0.0 新增的 16 个工具归入标准档位，从工具模式定义与 `forkToolModeTools.test.ts` 移除上游已删除的 `ReadSessionContext`（基础档收敛为 38 项），并在 `create-app.ts` 将 `FORK(tool-modes)` 接线调整至 `resolveAppRuntimeConfig` 之后。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：适配上游动态公告结构，工具/动态提示词/skills 注入开关仍在各自创建入口生效，不能由新公告绕过。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **上游同步记录（2026-10-24，`aac47556..3c5b2276`）**：保留配置服务、设置入口及 reload 档位刷新，并与上游 ToolSearch 可见性条件共同生效。
 
@@ -259,6 +264,7 @@
 
 ## 系统指令：用户自定义提示词 (identity-preset)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：保留预设身份提示词与运行时动态段隔离边界，使 `forkIdentityPresetContext.test.ts` 对齐 v4.0.0 将 `skills_listing` 收敛至 `collectSkillsListing` 的构建实现。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留预设提示词与动态注入边界；上游个性化编辑用户级 AGENTS.md，语义不同，不取代预设。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **上游同步记录（2026-10-24，`aac47556..3c5b2276`）**：node.ts 合入 storage migration barrier 与 standalone server 服务工厂，保留配置存储根目录导出和设置入口。
 
@@ -283,6 +289,7 @@
 
 ## 覆盖设置热重载：/refresh 命令 (reload-command)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：保留 `/refresh` 与 `/reload` 两条独立路由及持久化回执语义，并使 `forkReload.test.ts` 对齐 v4.0.0 新增的 `offeredMcpTools` 运行时状态字段。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：用户明确选择原设置重载改名 `/refresh`，保留既有维护轮、排队与历史 reload completion 事件；上游 `/reload` 由 App lifecycle 执行单任务重启，两条路由隔离。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **命令改名（2026-11-03）**：用户确认将 fork 设置热重载入口改为 `/refresh`，保留上游 `/reload` 的单任务重启语义；新信封与队列 kind 使用 `refresh`，持久化完成事件/marker 不改名，避免破坏历史。设计与实现见本条原文档。
 - **公告迁移兼容（2026-11-03）**：上游把 skills/动态公告迁入会话附件后，维护入口复用现有公告协调器撤回已关闭设置的旧附件；只调整模型内存投影，不改写普通对话、AGENTS 或原始持久记录，防止 `/refresh` 成功但下轮仍沿用旧设置。真实多轮回归及子代理隔离边界见本条与 identity-preset 实现文档。
@@ -305,6 +312,8 @@
 - **上游同步记录（2026-10-16，`29628c9..aac47556`）**：冲突文件 `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`、`apps/zcode-cli/packages/bootstrap/src/app/types.ts`、`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/index.ts`、`apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/mcp.ts`、`packages/shared/src/zcode-slash-command-help.ts`、`packages/ui/src/v4/pendingCommandRegistry.ts`。保留 `/refresh` 的工具面与提示词热重载、回放和帮助条目；同时合入 highspeed metrics handler，并在帮助中同步上游新增的 `guarded` 模式。
 
 ## GitHub 更新通道 (github-update)
+
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：在 `canary` 保留根 `package.json` 版本号 `"3.20.171"`、GitHub Release 更新通道与无强制 Authenticode 签名的 Windows 更新策略，移除守卫校验通过，并更新 `autoUpdaterReadyState.test.ts` 的 `node:child_process` 夹具以适配 `execFile` 依赖。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 
 ### RCode 独立发布仓库（2026-11-13）
 
@@ -353,6 +362,7 @@
 
 ## 编辑 stale 判据改为内容哈希 (edit-stale-guard)
 
+- **上游同步记录（2026-11-25，`a60ba6a7..a4b44451`，v4.0.0）**：保留内容哈希 stale 判据，使 `forkEditStaleGuard.test.ts` 对齐 v4.0.0 `writeHandler` 返回 `WriteErrorCode.STALE_FILE` 结构化失败结果的契约。处理与验证见 [同步记录](docs/specs/upstream-sync-20261125.md)。
 - **上游同步记录（2026-11-03，`3c5b2276..a60ba6a7`）**：保留内容哈希 stale 判据，吸收上游 Read 范围冷恢复与 snapshotIndex 顺序，不能退回仅时间戳判断。 处理与验证见 [同步记录](docs/specs/upstream-sync-20261103.md)。
 - **状态**：已完成（2026-09-29）
 - **需求背景**：`Edit` / `Write` 写入前要判「文件自模型读取后是否被改过」，上游用 mtime + size 代理，两个方向都会出错。**误报**：唯一的豁免只对「严格整读」生效，range Read（offset/limit）拿不到它，于是格式化器空保存、IDE 保存、git 触碰、同一 workspace 的另一个会话只要推进了 mtime，就被判 stale，哪怕字节没变。**漏报**：判「变了」要求 mtime 严格变大，mtime 不前进且 size 相同时直接放行且不比对内容（write.ts 的最终内容比对只覆盖整读），于是 `cp -p`、`tar -x`、`rsync -t` 这类保留时间戳的写入会静默覆盖别的进程刚写下的内容。

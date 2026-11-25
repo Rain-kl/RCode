@@ -1,4 +1,6 @@
 import { resolveToolSearchMode } from "../../tool/search/exposure.js";
+import { WAIT_FOR_MCP_SERVERS_TOOL_NAME } from "@zcode/contracts";
+import { isMcpServerWaitOffered } from "./mcp.js";
 import type {
   CollaborationMode,
   ExecutionShellSelection,
@@ -32,6 +34,7 @@ import { mirrorSubagentInteractionEvent } from "../../subagent/tool-event-mirror
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
 import { projectToolModelContract } from "../../tool/model-contract.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
+import { supersedeContextComposition } from "../context-composition/state.js";
 import { filterEmbeddedSearchRuntimeVisibleTools } from "./embedded-search-branch.js";
 import {
   getSessionShellSelection as readSessionShellSelection,
@@ -52,7 +55,7 @@ export async function setExecutionState(
 
 export function updateConfig(
   this: AgentRuntimeInternal,
-  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "outputStyle">,
 ): void {
   if (patch.mode !== undefined || patch.planEnabled !== undefined) {
     const previous = resolveExecutionState(this.config);
@@ -60,12 +63,6 @@ export function updateConfig(
     Object.assign(this.config, next);
     if (previous.planEnabled !== next.planEnabled)
       this.needsPlanModeExitReminder = !next.planEnabled;
-  }
-  if (patch.language !== undefined) {
-    this.config.language = patch.language;
-    if (!this.activeTurn) {
-      rebuildContextPrefix(this);
-    }
   }
   if ("outputStyle" in patch) {
     this.config.outputStyle = patch.outputStyle;
@@ -110,7 +107,8 @@ export function setSessionModelSelection(
 
 export function getProjectId(this: AgentRuntimeInternal): ProjectId {
   // Bash cd 会改变执行 cwd，但 project identity 不能随工具内 cwd 漂移。
-  return projectIdFromDirectory(this.workspaceRoot);
+  // 受管 worktree 会话按映射回源仓库的路径派生，与项目共用权限记录（docs/git/worktree.md §6.6.3）。
+  return projectIdFromDirectory(this.config.projectDirectory ?? this.workspaceRoot);
 }
 
 export function setWorkingDirectory(this: AgentRuntimeInternal, cwd: string): void {
@@ -139,9 +137,7 @@ export function getActiveTurnInfo(this: AgentRuntimeInternal): ActiveTurnInfo | 
 }
 
 export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolContract[] {
-  if (this.cachedTools === null) {
-    this.cachedTools = filterRuntimeVisibleTools.call(this, this.registry.toContracts());
-  }
+  this.cachedTools ??= filterRuntimeVisibleTools.call(this, this.registry.toContracts());
   return this.cachedTools
     .filter(
       (tool) =>
@@ -149,16 +145,18 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
         !model ||
         resolveToolSearchMode(model, this.config.toolSearch?.mode) !== "off",
     )
+    // FORK(search-providers): 暴露门按可用渠道数判定（内部渠道调用仍由外部传入 model），见 FEATURES.md 的 search-providers 条目
     .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch(model))
-    .map((tool) =>
-      projectToolModelContract(tool, this.registry.get(tool.name), {
-        model,
-      }),
-    );
+    .filter(
+      (tool) => tool.name !== WAIT_FOR_MCP_SERVERS_TOOL_NAME || isMcpServerWaitOffered(this, model),
+    )
+    .map((tool) => projectToolModelContract(tool, this.registry.get(tool.name), { model }));
 }
 
 export function invalidateToolCache(this: AgentRuntimeInternal): void {
   this.cachedTools = null;
+  // 工具集合变了（MCP、页面工具、注册表改写）：下一个请求的组成随之变化。
+  supersedeContextComposition(this, "tools");
 }
 
 export function getToolRegistry(this: AgentRuntimeInternal): ToolRegistry {
@@ -302,4 +300,5 @@ export function shouldExposeWebSearch(
   return countAvailableSearchChannels({ model, ...(options?.homeDir ? { homeDir: options.homeDir } : {}) }) > 0;
   // FORK-END(search-providers)
 }
+
 import { resolveExecutionState } from "@zcode/shared";

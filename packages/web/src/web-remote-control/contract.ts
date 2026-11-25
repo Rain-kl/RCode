@@ -23,7 +23,7 @@ export interface WebRemoteControlDeviceListAccount {
   displayName: string;
   avatarUrl?: string;
   // FORK(cloud-web-access): 自建 Relay 账号必须作为独立身份展示，不能伪装成官方 OAuth provider。
-  provider: "zai" | "bigmodel" | "self-hosted";
+  provider: "zai" | "zai_cn" | "bigmodel" | "self-hosted";
 }
 
 export type WebRemoteControlDeviceListView = {

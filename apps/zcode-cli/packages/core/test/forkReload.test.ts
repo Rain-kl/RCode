@@ -37,6 +37,7 @@ function createFakeRuntime(options: FakeRuntimeOptions = {}): {
       ...(options.taskType === undefined ? {} : { taskType: options.taskType }),
     } as AgentRuntimeInternal["config"],
     registry,
+    offeredMcpTools: new Map(),
     cachedTools: null,
     messageHistory: { borrowReadOnlyRuntimeEntries: () => [] },
     logger: {

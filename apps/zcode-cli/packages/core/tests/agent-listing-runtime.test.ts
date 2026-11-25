@@ -79,6 +79,8 @@ function createRuntime(
 const entries = () =>
   (runtime as unknown as AgentRuntimeInternal).messageHistory.toRuntimeEntries();
 const listings = () => entries().filter((e) => e.metadata?.source === "agent_listing_delta");
+// 历史里的条目带加入时间（静默提醒计时用），内容与新收集的公告相同。
+const committedInitial = { ...initial, time: expect.any(Number) };
 
 beforeEach(() => {
   sessionId = createSessionId();
@@ -172,7 +174,7 @@ describe("runtime agent listing", () => {
         expect(compacted.outcome).toBe("compacted");
         expect(
           compacted.entries.filter((e) => e.metadata?.source === "agent_listing_delta"),
-        ).toEqual([initial]);
+        ).toEqual([committedInitial]);
       }
       const listingParts = store.savedParts.filter(
         (part) => part.metadata?.runtimeMessage?.source === "agent_listing_delta",
@@ -210,7 +212,10 @@ describe("runtime agent listing", () => {
         });
       const history = new MessageHistoryImpl();
       await hydrateMessageHistoryFromSession({ history, messages: [notice] });
-      expect(history.toRuntimeEntries().find((e) => e.kind === "attachment")).toEqual(initial);
+      expect(history.toRuntimeEntries().find((e) => e.kind === "attachment")).toEqual({
+        ...initial,
+        time: notice.info.time.created,
+      });
       expect(
         collectAgentListingAttachment({
           definitions: snapshot("A"),
@@ -244,7 +249,7 @@ describe("runtime agent listing", () => {
     expect(listings()).toEqual([]);
     store.savePart = savePart;
     await runtime.executeTurn("retry");
-    expect(listings()).toEqual([initial]);
+    expect(listings()).toEqual([committedInitial]);
   });
 
   it("does not translate a definitions failure into removals", async () => {
@@ -253,7 +258,7 @@ describe("runtime agent listing", () => {
       throw new Error("definitions failed");
     });
     await expect(runtime.executeTurn("next")).rejects.toThrow();
-    expect(listings()).toEqual([initial]);
+    expect(listings()).toEqual([committedInitial]);
     expect(requests).toHaveLength(1);
   });
 

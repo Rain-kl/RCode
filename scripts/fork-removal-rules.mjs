@@ -106,6 +106,11 @@ export const REGISTRY = [
           /\b(?:agentToolEntry|taskToolEntry|sendMessageToolEntry|respondToCoordinatorToolEntry|includeAgent|includeSendMessage|includeRespondToCoordinator)\b|(?:name|aliases)\s*:\s*["'](?:Agent|Task|SendMessage|RespondToCoordinator)["']/,
         reason: "用户要求全面替换旧四工具，不能恢复隐藏入口或旧启用开关",
       },
+      {
+        path: "packages/ui/src/settingsPageHelpers.tsx",
+        pattern: /settings\.agentAlwaysBackground/,
+        reason: "本地六工具协作模式不展示上游 agentAlwaysBackground 开关",
+      },
     ],
     requiredPatterns: [
       {
@@ -154,6 +159,8 @@ export const REGISTRY = [
       ...[
         "packages/desktop/src/main/index.ts",
         "packages/desktop/src/host/index.ts",
+        "packages/desktop/src/extension-host/index.ts",
+        "packages/desktop/src/preinstalled-tools/process.ts",
         "apps/zcode-cli/packages/cli/src/run.ts",
         "apps/zcode-cli/packages/bootstrap/src/index.ts",
         "packages/server/src/entry-http.ts",
@@ -166,6 +173,26 @@ export const REGISTRY = [
         pattern: /import "@zcode\/shared\/upstream-network-policy\/node"/,
         reason: "业务入口先安装上游默认拒绝门禁",
       })),
+      {
+        path: "packages/services/src/providers/api/nodeApiNetwork.ts",
+        pattern: /assertUpstreamRequestAllowed\(routeUrl\.href,\s*"GET"\)/,
+        reason: "Host WebSocket 握手必须经过集中上游域名策略审核",
+      },
+      {
+        path: "packages/services/src/node.ts",
+        pattern: /if\s*\(\s*!FORK_LOCAL_MODE\s*\)\s*\{\s*services\.register\(\s*IVoiceInputService\b/,
+        reason: "本地模式不注册云端语音输入服务",
+      },
+      {
+        path: "packages/ui/src/v4/ConversationComposer.tsx",
+        pattern: /enabled:\s*!FORK_LOCAL_MODE\s*&&\s*!isWebRemoteControl/,
+        reason: "本地模式禁用云端语音输入入口",
+      },
+      {
+        path: "packages/ui/src/settings/settingsPageConfig.ts",
+        pattern: /if\s*\(\s*FORK_LOCAL_MODE\s*&&\s*section\s*===\s*"shares"\s*\)\s*return\s*false/,
+        reason: "本地模式不暴露依赖云端的分享管理设置页",
+      },
       {
         path: "packages/desktop/src/main/observeBeforeRequest.ts",
         pattern:

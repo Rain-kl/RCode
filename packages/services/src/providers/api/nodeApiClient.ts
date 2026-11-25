@@ -16,6 +16,11 @@ interface NodeApiClientOptions {
   /** FORK(local-mode): 宿主在重写端点前后审核目标，避免别名绕过网络策略。 */
   authorizeRequest?: (input: string | URL, method: string, endpointOrigin: string) => void;
   fetchImpl?: typeof fetch;
+  /** 仅返回已核实当前关联业务请求的刷新闭包；调用不得重放原业务请求。 */
+  resolveAssociatedCredentialRefresh?: (
+    input: string | URL,
+    headers: Headers,
+  ) => Promise<(() => Promise<void>) | null>;
   onZcodeJwtInvalid?: (input: string | URL, headers: Headers) => void;
   isZcodeJwtRequest?: (input: string | URL, headers: Headers) => boolean | Promise<boolean>;
   isBusinessUnauthorizedRequest?: (
@@ -180,6 +185,7 @@ export class NodeApiClient implements ApiClient {
   // FORK(local-mode): 可注入的宿主出网授权边界。
   private readonly authorizeRequest?: NodeApiClientOptions["authorizeRequest"];
   private readonly fetchImpl?: typeof fetch;
+  private readonly resolveAssociatedCredentialRefresh?: NodeApiClientOptions["resolveAssociatedCredentialRefresh"];
   private readonly resolveZCodeEndpointOrigin?: () => Promise<string> | string;
   private readonly resolveClientLanguage?: NodeApiClientOptions["resolveClientLanguage"];
   private readonly onZcodeJwtInvalid?: (input: string | URL, headers: Headers) => void;
@@ -199,6 +205,7 @@ export class NodeApiClient implements ApiClient {
   constructor(options: NodeApiClientOptions = {}) {
     this.authorizeRequest = options.authorizeRequest;
     this.fetchImpl = options.fetchImpl;
+    this.resolveAssociatedCredentialRefresh = options.resolveAssociatedCredentialRefresh;
     this.onZcodeJwtInvalid = options.onZcodeJwtInvalid;
     this.isZcodeJwtRequest = options.isZcodeJwtRequest;
     this.isBusinessUnauthorizedRequest = options.isBusinessUnauthorizedRequest;
@@ -336,12 +343,51 @@ export class NodeApiClient implements ApiClient {
           url,
         });
       }
+      const { authFailurePolicy, ...fetchInit } = init ?? {};
+      let refreshAssociatedCredential: (() => Promise<void>) | null = null;
+      if (authFailurePolicy !== "caller-handled" && this.resolveAssociatedCredentialRefresh) {
+        try {
+          // 网络前捕获归属；相同 token 在另一代登录中也不能接管旧请求的刷新。
+          refreshAssociatedCredential = await waitWithAbort(
+            this.resolveAssociatedCredentialRefresh(requestInput, new Headers(requestHeaders)),
+            signal,
+          );
+        } catch {
+          if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+          log.debug(undefined, "associated OAuth request classification did not complete");
+        }
+      }
       const response = await fetchImpl(requestInput, {
-        ...init,
+        ...fetchInit,
         headers: requestHeaders,
         ...(signal ? { signal } : {}),
       });
-      if ([200, 401, 403].includes(response.status) && this.onZcodeJwtInvalid) {
+      if (refreshAssociatedCredential && [200, 401, 403].includes(response.status)) {
+        // 只读响应副本，后台补关联。不等待 profile，也不重放付款/原请求或改写其错误。
+        const evidence =
+          response.status === 401
+            ? Promise.resolve("unauthorized" as const)
+            : readBusinessAuthenticationResponse(
+                response,
+                this.businessUnauthorizedObservationTimeoutMs,
+                signal,
+              );
+        void evidence
+          .then(async (result) => {
+            if (result === "unauthorized" && !signal?.aborted) {
+              await refreshAssociatedCredential();
+              log.info(undefined, "associated OAuth rejection recovery completed");
+            }
+          })
+          .catch(() => {
+            log.debug(undefined, "associated OAuth profile refresh did not complete");
+          });
+      }
+      if (
+        authFailurePolicy !== "caller-handled" &&
+        [200, 401, 403].includes(response.status) &&
+        this.onZcodeJwtInvalid
+      ) {
         try {
           await waitWithAbort(
             (async () => {

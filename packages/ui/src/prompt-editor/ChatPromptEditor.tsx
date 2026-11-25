@@ -96,6 +96,7 @@ export function ChatPromptEditor({
   onDrop,
   excludedSlashCommandNames,
   appSlashCommands,
+  extraPlugins,
   enableMentionPanel,
 }: {
   // FORK(cloud-web-access): 远控输入框按实际面板意图加载目录。
@@ -171,6 +172,8 @@ export function ChatPromptEditor({
   appSlashCommands?: readonly AppSlashCommand[];
   /** mention 面板开关（透传 LexicalChatInput）。 */
   enableMentionPanel?: boolean;
+  /** 额外挂进编辑器的 Lexical 插件（透传 LexicalChatInput）。 */
+  extraPlugins?: ReactNode;
 }) {
   const { intl } = useZCodeIntl();
   const isInline = layout === "inline";
@@ -361,6 +364,7 @@ export function ChatPromptEditor({
       <LexicalChatInput
         // FORK(cloud-web-access): 向编辑器传递远控目录加载策略。
         loadSubagentsOnDemand={loadSubagentsOnDemand}
+        extraPlugins={extraPlugins}
         placeholder={placeholder}
         disabled={disabled}
         submitDisabled={submitDisabled}

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChannelClient, ChannelServer, createQueuePair } from "@zcode/rpc";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import { accountProviderCredentialKey } from "../src/model-provider/accountProviderCredentialKey.js";
 
@@ -77,8 +77,13 @@ function writeZCodeBuiltinProviderConfig(home: string): string {
 }
 
 describe("createLocalServices remote authority", () => {
+  beforeEach(() => {
+    vi.stubEnv("ZCODE_CREDENTIAL_SECRET", "zcode-test-credential-secret-0123456789abcdef");
+  });
+
   afterEach(() => {
     process.env.HOME = originalHome;
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.resetModules();
     for (const home of tempHomes.splice(0)) {
@@ -328,6 +333,7 @@ describe("createLocalServices remote authority", () => {
           providerFamilyDomainUpdatedAt: before.providerFamilyDomainUpdatedAt ?? 0,
         },
       );
+      await credentialService.save("oauth:active_provider", "zai");
       await credentialService.save(
         "oauth:zai:user_info",
         JSON.stringify({ id: "account-a", username: "a", displayName: "Account A" }),

@@ -1,9 +1,13 @@
 /* eslint-disable max-lines -- autoUpdater 需要集中维护 Electron 事件、菜单状态与 IPC 交互，过度拆分会让更新状态流更难追踪 */
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import type { ISettingService } from "@zcode/services";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 const { autoUpdater } = pkg;
+const execFileAsync = promisify(execFile);
+const LINUX_SUDO_PROBE_TIMEOUT_MS = 3_000;
 import {
   DEFAULT_LOCALE,
   PlatformChannels,
@@ -405,7 +409,64 @@ function buildDownloadProgressState(
   };
 }
 
-async function quitAndInstallUpdate(rejectUnavailable = false) {
+function isLinuxSystemPackageUpdate(): boolean {
+  if (process.platform !== "linux" || !app.isPackaged) {
+    return false;
+  }
+
+  // AppImage 更新只替换当前用户拥有的文件，不需要系统管理员权限。
+  const AppImageUpdater = pkg.AppImageUpdater;
+  return typeof AppImageUpdater !== "function" || !(autoUpdater instanceof AppImageUpdater);
+}
+
+async function shouldWarnAboutLinuxSudoAuthorization(): Promise<boolean> {
+  if (!isLinuxSystemPackageUpdate() || process.getuid?.() === 0) {
+    return false;
+  }
+
+  try {
+    // execFile 不接受 stdio，输出已通过管道收集；删除无效选项以通过类型检查。
+    await execFileAsync("sudo", ["-n", "-v"], {
+      timeout: LINUX_SUDO_PROBE_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    return false;
+  } catch (error) {
+    // sudo -n -v 非零表示当前无可直接复用的 sudo 授权；启动失败、超时等异常按未知处理，
+    // 不阻断更新，也不把探测错误误当成需要密码的确定事实。
+    return Boolean(
+      error && typeof error === "object" && "code" in error && typeof error.code === "number",
+    );
+  }
+}
+
+async function confirmLinuxPackageAuthorization(): Promise<boolean> {
+  if (!isLinuxSystemPackageUpdate()) {
+    return true;
+  }
+
+  const isZh = menuLocale === "zh-CN";
+  const options = {
+    type: "question" as const,
+    title: isZh ? "可能需要系统授权" : "System authorization may be required",
+    message: isZh ? "更新可能需要管理员权限" : "This update may require administrator permission",
+    detail: isZh
+      ? "请留意系统授权窗口；如果你从终端启动 ZCode，请查看启动 ZCode 的终端。ZCode 不会读取或保存密码。"
+      : "Watch for a system authorization dialog. If you started ZCode from a terminal, check that terminal. ZCode does not read or store your password.",
+    buttons: isZh ? ["继续", "稍后"] : ["Continue", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+  const parent = BrowserWindow.getFocusedWindow();
+  const result = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+
+  return result.response === 0;
+}
+
+async function quitAndInstallUpdate(rejectUnavailable = false, showLinuxAuthorization = true) {
   if (quitAndInstallState !== "idle") {
     logger.info("[auto-update] quitAndInstall already in flight");
     return;
@@ -451,6 +512,29 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
   // 也不能让一次挂起的后台网络请求扣押用户已经选择的安装。
   quitAndInstallState = "preparing";
   logger.info("[auto-update] user requested quit and install");
+  if (showLinuxAuthorization && (await shouldWarnAboutLinuxSudoAuthorization())) {
+    let confirmed: boolean;
+    try {
+      confirmed = await confirmLinuxPackageAuthorization();
+    } catch (error) {
+      // 授权说明本身失败时不能让安装锁永久停在 preparing；退出准备尚未开始，ready 包仍可重试。
+      quitAndInstallState = "idle";
+      logger.warn("[auto-update] linux package authorization prompt failed:", error);
+      if (rejectUnavailable) {
+        throw error;
+      }
+      return;
+    }
+    if (!confirmed) {
+      // 授权说明发生在退出准备之前；用户选择稍后时必须保留 ready 包，不能进入不可逆的退出屏障。
+      quitAndInstallState = "idle";
+      logger.info("[auto-update] linux package authorization postponed");
+      if (rejectUnavailable) {
+        throw new Error("Linux package update authorization was postponed");
+      }
+      return;
+    }
+  }
   // FORK(github-update): 用户允许 Windows 未签名更新；安装前不追加 Authenticode 准入。
   // macOS 上 quitAndInstall() 在关窗前不会先走 app.before-quit。
   // 如果仍然只靠 before-quit 去放行窗口 close，现有的“红绿灯关闭=隐藏窗口”逻辑会把退出拦住，
@@ -497,7 +581,7 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
     // 这里恢复 electron-updater 原生安装入口，避免把“launcher 进程创建成功”误当成更新已接管。
     autoUpdater.quitAndInstall();
     // macOS 安装入口会先返回，原生 staging 完成后才异步触发 before-quit。
-    // 若在 finally 清标记，退出监听器会重新拦截并安装，形成无限重入；成功交接后保留到进程退出。
+    // 成功交接后保留 installing 到进程退出，阻止迟到的检查、下载结果和重复安装命令重新准入。
   } catch (error) {
     handleAutoUpdateFailure(error, "quit and install failed");
     if (rejectUnavailable) {
@@ -1232,9 +1316,7 @@ function publishDownloadedUpdate(info: UpdateDownloadedInfoLike): void {
   readyUpdateReleaseNotes = toPostUpdateReleaseNotesPayload(info) ?? downloadingUpdateReleaseNotes;
   clearAvailableUpdateState();
   clearDownloadingUpdateState();
-  logger.info(
-    `[auto-update] downloaded: ${info.version}, ${process.platform === "win32" ? "waiting for explicit install" : "ready to install on quit or explicit install"}`,
-  );
+  logger.info(`[auto-update] downloaded: ${info.version}, waiting for explicit install`);
   setAutoUpdaterMenuState(buildUpdateDownloadedState(info.version));
   // FORK(github-update): 不接入远端强更，下载提交后保持普通重查语义
   recheckAfterDownload?.("download-finished");
@@ -1588,9 +1670,9 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // 再决定是否下载。若继续让 electron-updater 自动下载，它只会按当前 app 版本判断，
   // 导致 `3.1.2` 已 ready `3.1.3` 时每次轮询都可能重复下载 `3.1.3`。
   autoUpdater.autoDownload = false;
-  // Bugfix: Windows/NSIS 在窗口关闭后会异步启动安装；如果用户紧接着关机，安装器可能被系统中断，
-  // 留下半更新状态并导致下次启动失败。macOS/Linux 也先关掉退出即装，只在 ready 包仍等于当前目标时
-  // 由 before-quit 主动安装，避免目标已经升高后退出装上旧包。
+  // 普通退出不代表用户确认安装。此前 macOS/Linux 在 before-quit 主动安装，
+  // 与失败后的 relaunch 组合后，会让有 pending 包的进程每次退出都重新安装、重启。
+  // 所有平台只允许显式安装入口接管，避免退出循环及关机期间的半更新。
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = logger;
   // FORK(github-update): 自有 Release 允许未签名 Windows 更新，不接入官方强制签名 hook。
@@ -1818,7 +1900,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     quitAndInstallUpdate(true),
   );
   ipcMain.on(PlatformChannels.QuitAndInstallUpdate, () => {
-    void quitAndInstallUpdate();
+    void quitAndInstallUpdate(false, true);
   });
   ipcMain.handle(PlatformChannels.DownloadUpdate, () => {
     downloadAvailableUpdate("renderer");
@@ -1837,17 +1919,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 
   triggerCheckForUpdates("startup");
   ensureAutoUpdatePollInterval();
-  app.on("before-quit", (event) => {
-    if (
-      process.platform === "win32" ||
-      quitAndInstallState !== "idle" ||
-      !isReadyUpdateCurrentTarget()
-    ) {
-      return;
-    }
-    event.preventDefault();
-    void quitAndInstallUpdate();
-  });
 }
 
 function ensureAutoUpdatePollInterval() {
@@ -1883,7 +1954,7 @@ export function requestAutoUpdateCheckWithoutWindow(reason = "force-update") {
   }
 
   if (menuState.kind === "update-downloaded") {
-    void quitAndInstallUpdate();
+    void quitAndInstallUpdate(false, true);
     return;
   }
   if (menuState.kind === "update-available") {
@@ -1953,7 +2024,7 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
   if (menuState.kind === "update-downloaded" && isReadyUpdateCurrentTarget()) {
     // 菜单文案已经是“重启以更新”。只有 ready 包仍等于当前目标时才安装；
     // 目标已经更高时落到下面的重新检查，避免装上旧包。
-    void quitAndInstallUpdate();
+    void quitAndInstallUpdate(false, true);
     return;
   }
   if (menuState.kind === "download-progress") {

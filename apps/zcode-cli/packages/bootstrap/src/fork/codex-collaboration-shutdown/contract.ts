@@ -17,4 +17,5 @@ export interface ProtocolRuntimeCleanupOptions {
   mcpConnectionPool?: { close(): unknown };
   sessionStore?: { close(): unknown };
   providerRegistryRuntime?: { dispose(): unknown };
+  pluginPreparation?: { dispose(): unknown };
 }

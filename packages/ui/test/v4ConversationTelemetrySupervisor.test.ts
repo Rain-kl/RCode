@@ -571,6 +571,7 @@ describe("ConversationTelemetrySupervisor", () => {
       model_name: "custom:custom-provider-id:custom-model",
       model_provider: "custom-provider-id",
       provider_name: "api.example.com",
+      send_type: "normal",
       agent: "glm",
       plan_status: "coding_plan",
       plan_product_id: "product-1",

@@ -1,4 +1,5 @@
 export * from "#src/web-remote-control/domain/webRemoteControlScreenCopy.js";
+export * from "#src/web-remote-control/ui/selfHostedRemoteLoginPage.js";
 export * from "#src/web-remote-control/ui/webRemoteControlBrand.js";
 export * from "#src/web-remote-control/ui/webRemoteControlConnectingScreen.js";
 export * from "#src/web-remote-control/ui/webRemoteControlConnectionSheet.js";

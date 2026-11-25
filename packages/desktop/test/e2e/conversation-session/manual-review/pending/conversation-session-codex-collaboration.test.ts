@@ -1,12 +1,12 @@
 import {
   TID_V4_SUBAGENT_OPEN_SIDE_PANE,
-  TID_CHAT_SUMMARY_PANEL,
   TID_V4_SESSION_PANE,
   TID_V4_BACKGROUND_WORK_CANCEL,
   TID_TOOL_SUMMARY_TRIGGER,
   testId,
 } from "@zcode/shared/test-ids";
 import { clearAppData, clickTestIdByDom } from "../../../helpers/desktop-app.js";
+import { openStatusCapsule } from "../../../helpers/status-capsule.js";
 import { attemptAllCleanup } from "../../../helpers/attempt-all-cleanup.js";
 import { releaseControlledReplay } from "../../../helpers/controlled-replay.js";
 import { resolveSeededReplayBaseUrl } from "../../../helpers/custom-openai-provider-store.js";
@@ -174,29 +174,9 @@ describe("CSC01 Codex 六工具真实子会话 pending", () => {
       "FINAL_ANSWER",
     );
     await waitForV4Pane((pane) => !pane.canStop, "CSC01 automatic wake must finish");
-    // 活动数归零后仍可通过面板打开目录与原子会话。
-    await browser.waitUntil(
-      async () =>
-        browser.execute((panelId) => {
-          const panel = document.querySelector<HTMLElement>(`[data-testid="${panelId}"]`);
-          if (!panel) return false;
-          if (panel.dataset.state === "collapsed") {
-            panel.querySelector<HTMLButtonElement>("button")?.click();
-            return false;
-          }
-          const trigger = panel.querySelector<HTMLButtonElement>(
-            '[data-status-section-trigger="agent"]',
-          );
-          if (!trigger) return false;
-          if (trigger.getAttribute("aria-expanded") !== "true") {
-            trigger.click();
-            return false;
-          }
-          return true;
-        }, TID_CHAT_SUMMARY_PANEL),
-      { timeout: 30_000, timeoutMsg: "CSC01 history-only status panel missing" },
-    );
-    await clickTestIdByDom("subagent-directory-trigger");
+    // 活动数归零后仍可通过活动胶囊打开目录与原子会话。
+    await openStatusCapsule("activity", 30_000);
+    await clickTestIdByDom("activity-subagent-directory");
     await browser.waitUntil(
       async () =>
         browser.execute(() =>

@@ -6,6 +6,7 @@ import {
   type SessionId,
   type SessionStorePort,
 } from "@zcode/contracts";
+import { resolvePath, type ConfigResult } from "@zcode/adapters/config";
 import type { AgentRuntime } from "@zcode/core";
 import type { ZCodeSessionSubagentsResult } from "@zcode/shared";
 import { projectSessionTranscript, type SessionTranscriptMessage } from "../session-transcript.js";
@@ -13,6 +14,7 @@ import {
   paginateEndedSubagents,
   projectSessionSubagents,
 } from "../zcode-protocol/subagent-session-query.js";
+import { getCliStorageRoot, getSubagentOutputRootDir } from "./paths.js";
 
 export interface SubagentTranscriptSnapshot {
   sessionId: string;
@@ -26,6 +28,8 @@ type ObservationDeps = {
   sessionId: SessionId;
   sessionStore: SessionStorePort;
   runtime: AgentRuntime;
+  /** 用来定位子代理输出目录（与 create-app 写入时同一规则），读上一代遗留 Agent 的 metadata.json。 */
+  configResult?: ConfigResult;
 };
 
 /** The app owns storage and lifecycle interpretation; the TUI receives a read model. */

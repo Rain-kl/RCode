@@ -177,7 +177,6 @@ function isTerminalFetchContent(
 export const webFetchToolEntry: ToolEntry = {
   capability: "Fetch a public URL and return its readable content as markdown",
   metadata: {
-    shouldDefer: true,
     name: WEBFETCH_TOOL_NAME,
     searchHint: "fetch and extract content from a URL",
     description: WEBFETCH_DESCRIPTION,

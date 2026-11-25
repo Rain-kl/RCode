@@ -37,6 +37,7 @@ export async function cleanupProtocolRuntime(
   };
   await Promise.all([
     step("sampler", () => options.processResourceSampler?.stop()),
+    step("plugin_preparation", () => options.pluginPreparation?.dispose()),
     step("mcp_telemetry", () => options.mcpTelemetryTracker?.stop()),
   ]);
   const drained = await step("sessions", () => options.server?.shutdown());

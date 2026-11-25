@@ -248,27 +248,32 @@ describe("terminal 与 V2 假 relay 的线级契约", () => {
       if (fail === "network") throw new TypeError("network unavailable");
       return fetch(input, init);
     });
-    const h = await fixture({ users: { jwt: "user-1" } }, "jwt", tokenFetcher as typeof fetch);
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    h.terminal.start();
-    await delay(60);
-    const tokens = () => tokenFetcher.mock.calls.length;
-    let count = 1;
-    for (const ms of [500, 1000, 2000, 4000, 8000, 10000, 10000]) {
-      await vi.advanceTimersByTimeAsync(ms - 1);
-      await delay(30);
-      expect(tokens()).toBe(count);
-      await vi.advanceTimersByTimeAsync(1);
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const h = await fixture({ users: { jwt: "user-1" } }, "jwt", tokenFetcher as typeof fetch);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      h.terminal.start();
       await delay(60);
-      expect(tokens()).toBe(++count);
-      fail = "network";
+      const tokens = () => tokenFetcher.mock.calls.length;
+      let count = 1;
+      for (const ms of [500, 1000, 2000, 4000, 8000, 10000, 10000]) {
+        await vi.advanceTimersByTimeAsync(ms - 1);
+        await delay(30);
+        expect(tokens()).toBe(count);
+        await vi.advanceTimersByTimeAsync(1);
+        await delay(60);
+        expect(tokens()).toBe(++count);
+        fail = "network";
+      }
+      fail = undefined;
+      await vi.advanceTimersByTimeAsync(10000);
+      // 已验证全部退避边界，真实握手阶段恢复真实 IO 时钟。
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(h.states.at(-1)).toBe("paired"));
+      expect(h.failures).toEqual([]);
+    } finally {
+      randomSpy.mockRestore();
     }
-    fail = undefined;
-    await vi.advanceTimersByTimeAsync(10000);
-    // 已验证全部退避边界，真实握手阶段恢复真实 IO 时钟。
-    vi.useRealTimers();
-    await vi.waitFor(() => expect(h.states.at(-1)).toBe("paired"));
-    expect(h.failures).toEqual([]);
   });
 
   it.each([401, 403])("token HTTP %s 停止重试，回前台不能复活终态", async (status) => {

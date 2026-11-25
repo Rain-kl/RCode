@@ -239,4 +239,35 @@ describe("self-hosted Web remote authentication", () => {
     await entry.start();
     expect(views).toEqual(["login"]);
   });
+
+  it("tracks session revisions and notifies subscribers on login and logout", async () => {
+    const storage = new MemoryStorage();
+    const auth = createSelfHostedRemoteAuth({
+      origin: "https://relay.example",
+      storage,
+      fetcher: async () => Response.json(session),
+    });
+    const notifications: Array<string | null> = [];
+    const unsubscribe = auth.subscribeSessionChange(() => {
+      notifications.push(auth.getSessionRevision());
+    });
+
+    expect(auth.getSessionRevision()).toBeNull();
+    await auth.startLogin({ username: "owner", password: "secret" });
+    const firstRevision = auth.getSessionRevision();
+    expect(firstRevision).toBeTruthy();
+
+    await auth.startLogin({ username: "owner", password: "secret" });
+    const secondRevision = auth.getSessionRevision();
+    expect(secondRevision).toBeTruthy();
+    expect(secondRevision).not.toBe(firstRevision);
+
+    await auth.logout();
+    expect(auth.getSessionRevision()).toBeNull();
+    expect(notifications).toEqual([firstRevision, secondRevision, null]);
+
+    unsubscribe();
+    await auth.startLogin({ username: "owner", password: "secret" });
+    expect(notifications).toHaveLength(3);
+  });
 });

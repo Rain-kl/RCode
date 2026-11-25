@@ -2,6 +2,7 @@ import { assertUpstreamRequestAllowed } from "@zcode/shared/upstream-network-pol
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@zcode/shared";
 import { createNodeApiClient } from "../src/providers/api/nodeApiClient.js";
+import { createHostApiNetworkTransport } from "../src/providers/api/nodeApiNetwork.js";
 
 describe("nodeApiClient", () => {
   it("宿主授权在端点重写前后阻断账号接口，不进入传输", async () => {
@@ -19,6 +20,15 @@ describe("nodeApiClient", () => {
       client.request("https://custom-upstream.example/api/v1/oauth/token"),
     ).rejects.toThrow("FORK_UPSTREAM_REQUEST_BLOCKED");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("Host WebSocket 连接受集中上游域名策略阻断，不进入传输", async () => {
+    const resolveOptions = vi.fn(async () => ({}));
+    const transport = createHostApiNetworkTransport(resolveOptions);
+    await expect(
+      transport.createWebSocket("wss://zcode.z.ai/api/v1/remote/ws2"),
+    ).rejects.toThrow("FORK_UPSTREAM_REQUEST_BLOCKED");
+    expect(resolveOptions).not.toHaveBeenCalled();
   });
 
   it.each(["bigmodel", "zai"])("%s 空业务响应经身份核验确认失效，保留原响应", async (family) => {

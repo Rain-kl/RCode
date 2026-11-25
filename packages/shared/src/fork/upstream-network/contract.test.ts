@@ -15,6 +15,7 @@ describe("fork upstream request boundary", () => {
     "https://open.bigmodel.cn/api/anthropic",
     "https://rum.aliyuncs.com/report",
     "https://cdn-zcode.z.ai/marketing/banner.png",
+    "https://cdn-zcode.z.ai/zcode/preinstalled-tools/%2e%2e/marketing",
     "https://cdn-zcode.z.ai:444/zcode/official-plugin/marketplace.json",
     "https://user:pass@cdn-zcode.z.ai/zcode/official-plugin/marketplace.json",
     "https://cdn-zcode.z.ai/zcode/official-plugin/%2e%2e/marketing",
@@ -22,6 +23,8 @@ describe("fork upstream request boundary", () => {
   it.each([
     "https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json",
     "https://cdn-zcode.z.ai/zcode/official-plugin/assets/github/icon.png",
+    "https://cdn-zcode.z.ai/zcode/preinstalled-tools/catalog.json",
+    "https://cdn.codegeex.cn/zcode/preinstalled-tools/uv.tar.gz",
     "https://cdn.codegeex.cn/zcode/electron/releases/3.0/node.tar.gz",
     "https://zcode.z.ai/docs",
     "https://zcode.z.ai/api/v1/client/scenes",
@@ -34,6 +37,9 @@ describe("fork upstream request boundary", () => {
     const url = "https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json";
     expect(isUpstreamRequestAllowed(url, "POST")).toBe(false);
     expect(isUpstreamRequestAllowed(url, "HEAD")).toBe(true);
+    const toolsUrl = "https://cdn-zcode.z.ai/zcode/preinstalled-tools/catalog.json";
+    expect(isUpstreamRequestAllowed(toolsUrl, "POST")).toBe(false);
+    expect(isUpstreamRequestAllowed(toolsUrl, "HEAD")).toBe(true);
   });
   it("treats configured upstream aliases as upstream, including localhost overrides", () => {
     expect(

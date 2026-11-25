@@ -24,6 +24,7 @@ import { createGenerateTextOptions } from "./runner-options.js";
 import { detectProviderBusinessFinishError } from "./provider-finish-business-error.js";
 import {
   normalizeReasoning,
+  orderGeneratedContent,
   normalizeSources,
   normalizeToolCalls,
   normalizeToolResults,
@@ -46,6 +47,7 @@ import {
   calculateRetryDelay,
   classifyAttemptAdmissionFailure,
   logRetryDelayDecision,
+  retryDelayWithAdmissionCooldown,
   sleep,
   toAdapterError,
 } from "./runner-retry.js";
@@ -69,7 +71,10 @@ import {
   retryAllowedByFailurePolicy,
 } from "./workflow-model-failure-policy.js";
 import { modelFailureStatusFields, providerRequestIdFromHeaders } from "./runner-telemetry.js";
-import { repairReasoningHistoryAfterSignatureRejection } from "./reasoning-history-normalization.js";
+import {
+  repairReasoningHistoryAfterRejection,
+  thinkingSignatureRejectionEvidence,
+} from "./reasoning-history-normalization.js";
 import { admitAttempt, type AttemptAdmission } from "./request-admission.js";
 // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
 import { retryBudgetAllows } from "./retry-budget.js";
@@ -332,10 +337,12 @@ export async function runGenerateText(input: {
         emptyCompletionRetryCount += 1;
         await scheduleEmptyCompletionRetry({
           abortSignal: input.request.abortSignal,
+          admission,
           attempt,
           completedAt,
           errorPhase: "response",
           logger: input.logger,
+          modelRequestAdmission: input.request.modelRequestAdmission,
           requestHeaders,
           requestStatusSink: input.request.statusSink,
           responseHeaders,
@@ -393,8 +400,13 @@ export async function runGenerateText(input: {
         statusPublishOptions(input, admission),
       );
 
+      // 结构化输出的 text 是序列化结果，不对应模型块，不编号。
+      const textBlocks = input.request.responseJsonSchema
+        ? undefined
+        : orderGeneratedContent(result, { text, reasoning, toolCalls });
       return {
         text,
+        ...(textBlocks ? { textBlocks } : {}),
         finishReason: result.finishReason,
         usage,
         reasoning,
@@ -402,6 +414,8 @@ export async function runGenerateText(input: {
         toolResults,
         sources,
         providerMetadata: result.providerMetadata as Record<string, unknown> | undefined,
+        // 修复后的重试成功：core 在产出的 assistant 上记标记，之后的请求不再发被拒的块。
+        ...(signatureRepairAttempted ? { signedReasoningReset: true } : {}),
       };
     } catch (error) {
       // 合并后鉴权解析进入 attempt try；与 stream 一致保留网络前凭据缺失的类型化错误。
@@ -450,14 +464,13 @@ export async function runGenerateText(input: {
       const responseHeaders = sanitizeModelNetworkHeaders(
         getResponseHeaders(unwrapRetryError(error)),
       );
-      const repairedMessages =
-        !signatureRepairAttempted && resolved.providerKind === "anthropic"
-          ? repairReasoningHistoryAfterSignatureRejection(requestMessages, error)
-          : undefined;
+      const repairedMessages = !signatureRepairAttempted
+        ? repairReasoningHistoryAfterRejection(requestMessages, error, resolved.providerKind)
+        : undefined;
       // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
       const retryWithRepairedHistory = repairedMessages !== undefined && attempt < lastAttempt;
       if (repairedMessages) {
-        // 签名只对生成它的 thinking block 有效。明确收到签名校验 400 时，
+        // 签名和加密推理只对生成它的上游有效。明确收到对应的 400 时，
         // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
         // 只替换本次请求副本，并在共享预算内给一次物理请求机会；不能通过
         // 回退 attempt 复用 requestId，也不能改写 canonical history。
@@ -556,16 +569,40 @@ export async function runGenerateText(input: {
 
       // FORK(codex-collaboration): 鉴权/签名修复同样遵循指数退避，不能另开零延迟尝试链。
       if (retryWithAuth) failure.retryReason = ModelRetryReason.AuthRefresh;
-      else if (retryWithRepairedHistory)
+      else if (retryWithRepairedHistory) {
         failure.retryReason = ModelRetryReason.ReasoningSignatureRepair;
+        input.logger?.warn("Retrying model request after reasoning rejection", {
+          attempt,
+          event: "model.reasoning_signature_repair.retry",
+          maxAttempts: statusContext.maxAttempts,
+          nextAttempt: attempt + 1,
+          // 同一事件也用于 Responses 加密推理被拒，记下类型以区分。
+          providerKind: resolved.providerKind,
+          requestId: statusContext.requestId,
+          status: "waiting",
+          // 记下 provider 原文和 prefix 不一致响应头：写明哪一块、因为什么被拒，排查前缀变化时用。
+          ...thinkingSignatureRejectionEvidence(error, responseHeaders),
+        });
+      }
 
-      const delayMs =
+      // off-peak 排队有自己的服务端协议，等待不叠加冷却；普通重试取 max(本地退避, 准入端口的剩余冷却)。
+      const { admissionCooldownMs, backoffMs, delayMs } =
         offPeak?.kind === "queued"
-          ? // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
-            Math.min(offPeak.delayMs, 30_000, input.retry.maxDelayMs)
-          : calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs);
+          ? (() => {
+              // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
+              const bounded = Math.min(offPeak.delayMs, 30_000, input.retry.maxDelayMs);
+              return { admissionCooldownMs: 0, backoffMs: bounded, delayMs: bounded };
+            })()
+          : retryDelayWithAdmissionCooldown({
+              admission: input.request.modelRequestAdmission,
+              backoffMs: calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs),
+              jitter: input.retry.jitter,
+              statusContext,
+            });
       logRetryDelayDecision({
+        admissionCooldownMs,
         attempt,
+        backoffMs,
         canRetry,
         delayMs,
         failure,
