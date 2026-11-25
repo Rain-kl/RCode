@@ -76,6 +76,9 @@ describe("desktop relay V2 transport", () => {
     expect(relay.httpCalls.filter((call) => call.path.endsWith("/token"))).toHaveLength(1);
   });
   it("每轮4~6秒心跳不带SID，15秒无ACK独立重连并重新申请token", async () => {
+    // 修复原因：v4.0.0 在 auth_ack 后首次重连引入 1500ms 打散窗口（WEB_REMOTE_CONTROL_V2_RECONNECT_SPREAD_MS），
+    // 未固定随机源时仅推进 1200ms 有 20% 概率未触发重连而超时；固定为 0.5 使重连延迟确定为 750ms、心跳为 5000ms。
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const { relay, transport, states, waitForState } = await fixture({
       users: { jwt: "user" },
       onMessage: ({ message }) =>
@@ -87,7 +90,7 @@ describe("desktop relay V2 transport", () => {
     // 当前连接的计时器先通过重连在 fake clock 下建立。
     relay.disconnect({ role: "device" });
     await waitForState("connecting");
-    await vi.advanceTimersByTimeAsync(1200);
+    await vi.advanceTimersByTimeAsync(750);
     await waitForState("waiting_terminal");
     expect(states.at(-1)).toBe("waiting_terminal");
     const before = relay.messages.length;
@@ -100,7 +103,7 @@ describe("desktop relay V2 transport", () => {
     expect(query).toEqual({ type: "pair_status_query", client_ts: expect.any(Number) });
     await vi.advanceTimersByTimeAsync(9000);
     expect(states.at(-1)).toBe("connecting");
-    await vi.advanceTimersByTimeAsync(1200);
+    await vi.advanceTimersByTimeAsync(750);
     await waitForState("waiting_terminal");
     expect(relay.httpCalls.filter((call) => call.path.endsWith("/token"))).toHaveLength(3);
     expect(states.at(-1)).toBe("waiting_terminal");

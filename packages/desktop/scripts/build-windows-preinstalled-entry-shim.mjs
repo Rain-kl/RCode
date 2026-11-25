@@ -7,6 +7,7 @@ import { arch, platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { resolveWindowsVisualStudioGeneratorAsync } from "../../../scripts/windows-cmake-generator.mjs";
 import { withE2EDesktopBuildLock } from "./ensure-e2e-desktop-build.mjs";
 import { spawnCancellableStep } from "./e2e-step-process.mjs";
 
@@ -129,6 +130,11 @@ async function runCmake(command, args, deadline) {
 
 async function build(outputDir, targetArch, source, deadline) {
   const command = await resolveCmake(deadline);
+  const generator = await resolveWindowsVisualStudioGeneratorAsync({
+    arch: targetArch,
+    env: process.env,
+    timeoutMs: remaining(deadline),
+  });
   const work = await mkdtemp(join(tmpdir(), "zcode-preinstalled-entry-shim-"));
   try {
     const buildDir = join(work, "build");
@@ -141,7 +147,7 @@ async function build(outputDir, targetArch, source, deadline) {
         "-B",
         buildDir,
         "-G",
-        "Visual Studio 17 2022",
+        generator,
         "-A",
         targetArch === "arm64" ? "ARM64" : "x64",
         `-DZCODE_SHIM_OUTPUT_DIR=${builtDir.replaceAll("\\", "/")}`,

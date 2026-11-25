@@ -4,6 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveWindowsVisualStudioGenerator } from "./windows-cmake-generator.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const source = join(root, "scripts/windows-runtime-host");
@@ -12,17 +13,27 @@ export function resolveRuntimeHostBuild(
   arch,
   hostPlatform = process.platform,
   compiler = process.env.ZCODE_WINDOWS_CXX,
+  options = {},
 ) {
   if (arch !== "x64" && arch !== "arm64")
     throw new Error(`Unsupported runtime host architecture: ${arch}`);
+  if (hostPlatform !== "win32") {
+    return {
+      configureArgs: [
+        "-DCMAKE_SYSTEM_NAME=Windows",
+        `-DCMAKE_CXX_COMPILER=${compiler || (arch === "arm64" ? "aarch64-w64-mingw32-clang++" : "x86_64-w64-mingw32-g++")}`,
+      ],
+    };
+  }
+  const generator = resolveWindowsVisualStudioGenerator({
+    arch,
+    hostPlatform,
+    env: options.env ?? process.env,
+    probeVswhere: options.probeVswhere,
+    ...(options.runtimePlatform ? { runtimePlatform: options.runtimePlatform } : {}),
+  });
   return {
-    configureArgs:
-      hostPlatform === "win32"
-        ? ["-G", "Visual Studio 17 2022", "-A", arch === "arm64" ? "ARM64" : "x64"]
-        : [
-            "-DCMAKE_SYSTEM_NAME=Windows",
-            `-DCMAKE_CXX_COMPILER=${compiler || (arch === "arm64" ? "aarch64-w64-mingw32-clang++" : "x86_64-w64-mingw32-g++")}`,
-          ],
+    configureArgs: ["-G", generator, "-A", arch === "arm64" ? "ARM64" : "x64"],
   };
 }
 

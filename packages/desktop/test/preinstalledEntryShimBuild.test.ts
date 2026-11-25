@@ -26,6 +26,7 @@ async function fixture() {
     "packages/desktop/scripts/ensure-e2e-desktop-build.mjs",
     "packages/desktop/scripts/e2e-step-process.mjs",
     "scripts/spawn-command.mjs",
+    "scripts/windows-cmake-generator.mjs",
   ]) {
     const target = join(root, path);
     await mkdir(resolve(target, ".."), { recursive: true });
@@ -55,9 +56,12 @@ await appendFile(process.env.SHIM_BUILD_EVENTS, building ? "build\\n" : "configu
 if (!building) {
   await mkdir(value("-B"), { recursive: true });
   await writeFile(join(value("-B"), "fixture.json"), JSON.stringify({
-    source: value("-S"), arch: value("-A"),
+    source: value("-S"), arch: value("-A"), generator: value("-G"),
     output: args.find((arg) => arg.startsWith("-DZCODE_SHIM_OUTPUT_DIR=")).split("=").slice(1).join("=")
   }));
+  if (process.env.SHIM_BUILD_GENERATOR_LOG) {
+    await writeFile(process.env.SHIM_BUILD_GENERATOR_LOG, value("-G"));
+  }
 } else {
   if (process.env.SHIM_BUILD_HANG === "1") {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
@@ -204,5 +208,16 @@ describe("preinstalled entry shim build lifecycle", () => {
     await expect(f.run([], { SHIM_BUILD_FAIL: "1" })).rejects.toThrow();
     expect(await readFile(join(f.output, shimName))).toEqual(previous);
     expect(await readFile(join(f.output, "build.json"))).toEqual(manifest);
+  });
+
+  it("forwards explicit Visual Studio generator override to CMake", async () => {
+    const f = await fixture();
+    const generatorLog = join(f.root, "generator.txt");
+    await f.run(["--ensure"], {
+      ZCODE_WINDOWS_CMAKE_GENERATOR: "Visual Studio 18 2026",
+      SHIM_BUILD_GENERATOR_LOG: generatorLog,
+    });
+    expect(await readFile(generatorLog, "utf8")).toBe("Visual Studio 18 2026");
+    expect(await f.counts()).toEqual(["configure", "build"]);
   });
 });

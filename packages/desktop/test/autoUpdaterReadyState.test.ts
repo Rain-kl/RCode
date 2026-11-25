@@ -1,20 +1,21 @@
 import { EventEmitter } from "node:events";
 import { PlatformChannels, desktopMenuMessageIds, formatDesktopMenuMessage } from "@zcode/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { loggerErrorMock, loggerInfoMock, loggerWarnMock, readFileMock, spawnMock } = vi.hoisted(
-  () => {
+const { execFileMock, loggerErrorMock, loggerInfoMock, loggerWarnMock, readFileMock, spawnMock } =
+  vi.hoisted(() => {
     return {
+      execFileMock: vi.fn(),
       loggerErrorMock: vi.fn(),
       loggerInfoMock: vi.fn(),
       loggerWarnMock: vi.fn(),
       readFileMock: vi.fn(),
       spawnMock: vi.fn(),
     };
-  },
-);
+  });
 
 const originalPlatform = process.platform;
+const originalGetuidDescriptor = Object.getOwnPropertyDescriptor(process, "getuid");
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const TWO_MINUTES_MS = 2 * 60 * 1000;
@@ -36,6 +37,7 @@ const browserWindows: Array<{
 
 const ipcMainOn = vi.fn();
 const ipcMainHandle = vi.fn();
+const browserWindowGetFocusedWindow = vi.fn(() => null);
 const dialogShowMessageBox = vi.fn(async () => ({ response: 1 }));
 const settingServiceMock = {
   get: vi.fn(async () => ({ recentProjects: [], locale: "en-US" as const })),
@@ -90,7 +92,7 @@ autoUpdaterMock.installDirectory = null;
 autoUpdaterMock.downloadedUpdateHelper = null;
 
 vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
+  execFile: execFileMock,
   spawn: spawnMock,
 }));
 
@@ -98,6 +100,7 @@ vi.mock("electron", () => ({
   app: appMock,
   BrowserWindow: {
     getAllWindows: vi.fn(() => browserWindows),
+    getFocusedWindow: browserWindowGetFocusedWindow,
   },
   ipcMain: {
     on: ipcMainOn,
@@ -183,6 +186,31 @@ function mockProcessPlatform(platform: NodeJS.Platform) {
   });
 }
 
+function mockProcessGetuid(uid: number) {
+  Object.defineProperty(process, "getuid", {
+    value: () => uid,
+    configurable: true,
+  });
+}
+
+function restoreProcessGetuid() {
+  if (originalGetuidDescriptor) {
+    Object.defineProperty(process, "getuid", originalGetuidDescriptor);
+  } else {
+    delete (process as { getuid?: unknown }).getuid;
+  }
+}
+
+function resetExecFileMock() {
+  execFileMock.mockReset();
+  execFileMock.mockImplementation((...args: unknown[]) => {
+    const callback = args.at(-1);
+    if (typeof callback === "function") {
+      (callback as (error: Error | null, stdout: string, stderr: string) => void)(null, "", "");
+    }
+  });
+}
+
 function getExpectedDownloadingProgressLabel(progress: number) {
   return formatDesktopMenuMessage(
     TEST_LOCALE,
@@ -194,10 +222,19 @@ function getExpectedDownloadingProgressLabel(progress: number) {
 }
 
 describe("autoUpdater ready state sync", () => {
+  afterEach(() => {
+    mockProcessPlatform(originalPlatform);
+    restoreProcessGetuid();
+  });
+
   beforeEach(() => {
     vi.resetModules();
     mockProcessPlatform(originalPlatform);
+    restoreProcessGetuid();
+    resetExecFileMock();
     browserWindows.length = 0;
+    browserWindowGetFocusedWindow.mockClear();
+    browserWindowGetFocusedWindow.mockReturnValue(null);
     menuItem.label = "";
     menuItem.enabled = true;
     ipcMainOn.mockClear();
@@ -2552,5 +2589,73 @@ describe("autoUpdater ready state sync", () => {
     expect(loggerInfoMock).toHaveBeenCalledWith(
       "[auto-update] dev update install fallback: relaunch app",
     );
+  });
+
+  it("非 root linux 上 sudo -n -v 可用时不弹授权框直接进入安装", async () => {
+    mockProcessPlatform("linux");
+    mockProcessGetuid(1000);
+    const onBeforeQuitAndInstall = vi.fn(async () => {});
+    const { initAutoUpdater } = await importAutoUpdaterWithLocale();
+
+    await initAutoUpdater({ onBeforeQuitAndInstall });
+    autoUpdaterMock.emit("update-downloaded", { version: "0.1.25" });
+
+    const install = ipcMainHandle.mock.calls.find(
+      ([channel]) => channel === PlatformChannels.QuitAndInstallUpdate,
+    )?.[1] as (() => Promise<void>) | undefined;
+    expect(install).toBeTypeOf("function");
+
+    await install!();
+
+    expect(execFileMock).toHaveBeenCalledWith(
+      "sudo",
+      ["-n", "-v"],
+      expect.objectContaining({ windowsHide: true }),
+      expect.any(Function),
+    );
+    expect(dialogShowMessageBox).not.toHaveBeenCalled();
+    expect(onBeforeQuitAndInstall).toHaveBeenCalledOnce();
+    expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it("非 root linux 上 sudo -n -v 需要密码时先弹窗确认，稍后保留 ready 且继续可安装", async () => {
+    mockProcessPlatform("linux");
+    mockProcessGetuid(1000);
+    execFileMock.mockImplementation((...args: unknown[]) => {
+      const callback = args.at(-1);
+      if (typeof callback === "function") {
+        const sudoError = Object.assign(new Error("sudo: a password is required"), { code: 1 });
+        (callback as (error: Error | null, stdout: string, stderr: string) => void)(
+          sudoError,
+          "",
+          "",
+        );
+      }
+    });
+    const onBeforeQuitAndInstall = vi.fn(async () => {});
+    const module = await importAutoUpdaterWithLocale();
+
+    await module.initAutoUpdater({ onBeforeQuitAndInstall });
+    autoUpdaterMock.emit("update-downloaded", { version: "0.1.25" });
+
+    const install = ipcMainHandle.mock.calls.find(
+      ([channel]) => channel === PlatformChannels.QuitAndInstallUpdate,
+    )?.[1] as (() => Promise<void>) | undefined;
+    expect(install).toBeTypeOf("function");
+
+    dialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+    await expect(install!()).rejects.toThrow("Linux package update authorization was postponed");
+    expect(onBeforeQuitAndInstall).not.toHaveBeenCalled();
+    expect(autoUpdaterMock.quitAndInstall).not.toHaveBeenCalled();
+    expect(module.getAutoUpdaterState()).toMatchObject({
+      kind: "update-downloaded",
+      version: "0.1.25",
+    });
+
+    dialogShowMessageBox.mockResolvedValueOnce({ response: 0 });
+    await install!();
+    expect(dialogShowMessageBox).toHaveBeenCalledTimes(2);
+    expect(onBeforeQuitAndInstall).toHaveBeenCalledOnce();
+    expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledOnce();
   });
 });
