@@ -14,6 +14,7 @@ import test from "node:test";
 
 import {
   EditErrorCode,
+  WriteErrorCode,
   type FileSystemPort,
   type FileSystemReadTextResult,
   type FileSystemStatResult,
@@ -280,7 +281,7 @@ test("Write 误报：range Read + mtime 前进 + 字节未变 → 放行", async
   assert.equal(writtenContents.length, 1);
 });
 
-test("Write 漏报：range Read + mtime 与 size 都不变但字节变了 → 报 write_file_stale", async () => {
+test("Write 漏报：range Read + mtime 与 size 都不变但字节变了 → 报 stale_file", async () => {
   const file: FakeFile = {
     content: "line one\nline three\n",
     lineEndings: "LF",
@@ -298,16 +299,13 @@ test("Write 漏报：range Read + mtime 与 size 都不变但字节变了 → �
     contentHash: contentHashOf("line one\nline two\n"),
   });
 
-  await assert.rejects(
-    writeToolEntry.handler(
-      { file_path: FILE_PATH, content: "line one\nline 2\n" },
-      createContext(port, readFileState),
-    ),
-    (error: { context?: Record<string, unknown> }) => {
-      assert.equal(error.context?.code, "write_file_stale");
-      return true;
-    },
-  );
+  const output = (await writeToolEntry.handler(
+    { file_path: FILE_PATH, content: "line one\nline 2\n" },
+    createContext(port, readFileState),
+  )) as { result?: false; errorCode?: number };
+
+  assert.equal(output.result, false);
+  assert.equal(output.errorCode, WriteErrorCode.STALE_FILE);
   assert.equal(writtenContents.length, 0, "判 stale 时不得写盘");
 });
 
@@ -368,10 +366,12 @@ test("真实 Read → 同时间戳同大小外部修改 → Write 拒绝 → Rea
     await readHandler({ file_path: file }, context);
     await writeFile(file, "alpha\nzeta\n");
     await utimes(file, timestamp, timestamp);
-    await assert.rejects(
-      writeToolEntry.handler({ file_path: file, content: "ALPHA\nbeta\n" }, context),
-      (error: { context?: Record<string, unknown> }) => error.context?.code === "write_file_stale",
-    );
+    const staleOutput = (await writeToolEntry.handler(
+      { file_path: file, content: "ALPHA\nbeta\n" },
+      context,
+    )) as { result?: false; errorCode?: number };
+    assert.equal(staleOutput.result, false);
+    assert.equal(staleOutput.errorCode, WriteErrorCode.STALE_FILE);
     assert.equal(await readFile(file, "utf8"), "alpha\nzeta\n");
     const refreshed = (await readHandler({ file_path: file }, context)) as {
       type: string;

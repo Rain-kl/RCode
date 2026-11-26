@@ -33,6 +33,8 @@ export async function aggregateStreamToResult(
   let finishReason = "unknown";
   let usage: ModelUsage = {};
   let providerMetadata: Record<string, unknown> | undefined;
+  let signedReasoningReset = false;
+  let nextBlockIndex = 0;
   const reasoning: ModelReasoningContentBlock[] = [];
   const reasoningById = new Map<string, ModelReasoningContentBlock>();
   const toolCalls: ModelToolCall[] = [];
@@ -53,6 +55,7 @@ export async function aggregateStreamToResult(
           providerMetadata: event.providerMetadata,
           reasoning,
           reasoningById,
+          allocateBlockIndex: () => nextBlockIndex++,
         });
         if (event.type === "reasoning_delta") {
           block.text += event.text;
@@ -86,6 +89,7 @@ export async function aggregateStreamToResult(
         finishReason = event.finishReason;
         usage = event.usage;
         providerMetadata = event.providerMetadata;
+        signedReasoningReset = event.signedReasoningReset === true;
         break;
       }
 
@@ -109,6 +113,7 @@ export async function aggregateStreamToResult(
     ...(reasoning.length > 0 ? { reasoning } : {}),
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
     ...(providerMetadata === undefined ? {} : { providerMetadata }),
+    ...(signedReasoningReset ? { signedReasoningReset } : {}),
   };
 }
 

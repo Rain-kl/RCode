@@ -71,6 +71,7 @@ async function projectDynamicWorkflowTask(
   };
 }
 
+// FORK(codex-collaboration): 已移除旧本地代理工具，TaskOutput 不再投影 local_agent 活动快照。
 async function readTaskOutputFile(
   outputFile: string | undefined,
   context: ToolExecutionContext,

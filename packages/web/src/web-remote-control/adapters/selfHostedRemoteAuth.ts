@@ -6,9 +6,11 @@ import type {
 
 const LOGIN_PATH = "/api/fork-remote/auth/login";
 const SESSION_STORAGE_KEY = "zcode:self-hosted-remote-session";
+const SESSION_CHANGE_EVENT = "zcode-self-hosted-remote-auth-change";
 
 interface SelfHostedRemoteSession {
   token: string;
+  revision?: string;
   userInfo: {
     id: string;
     username: string;
@@ -37,6 +39,13 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function createSessionRevision(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
 function parseSession(value: unknown): SelfHostedRemoteSession | null {
   if (!value || typeof value !== "object") return null;
   const session = value as Partial<SelfHostedRemoteSession>;
@@ -51,6 +60,7 @@ function parseSession(value: unknown): SelfHostedRemoteSession | null {
     return null;
   return {
     token: session.token.trim(),
+    ...(isNonEmptyString(session.revision) ? { revision: session.revision.trim() } : {}),
     userInfo: {
       id: userInfo.id.trim(),
       username: userInfo.username.trim(),
@@ -72,6 +82,14 @@ export function createSelfHostedRemoteAuth(
 ): SelfHostedRemoteAuth {
   const storage = options.storage ?? browserStorage();
   const fetcher = options.fetcher ?? fetch;
+  const listeners = new Set<() => void>();
+  const notifySessionChange = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SESSION_CHANGE_EVENT));
+      return;
+    }
+    for (const listener of [...listeners]) listener();
+  };
   const clear = () => {
     try {
       storage.removeItem(SESSION_STORAGE_KEY);
@@ -94,6 +112,10 @@ export function createSelfHostedRemoteAuth(
 
   return {
     getZCodeJwtToken: () => load()?.token ?? null,
+    getSessionRevision: () => {
+      const current = load();
+      return current ? (current.revision ?? current.token) : null;
+    },
     getActiveAccount: (): SelfHostedRemoteAccount | null => {
       const session = load();
       return session
@@ -139,8 +161,12 @@ export function createSelfHostedRemoteAuth(
           "Relay login response did not contain a valid session",
           { cause: parseError },
         );
+      const nextSession: SelfHostedRemoteSession = {
+        ...session,
+        revision: createSessionRevision(),
+      };
       try {
-        storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+        storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextSession));
       } catch {
         clear();
         throw new SelfHostedRemoteAuthError(
@@ -148,9 +174,28 @@ export function createSelfHostedRemoteAuth(
           "Relay login succeeded but the browser could not persist the session",
         );
       }
+      notifySessionChange();
     },
     async logout(): Promise<void> {
       clear();
+      notifySessionChange();
+    },
+    subscribeSessionChange(listener: () => void): () => void {
+      if (typeof window !== "undefined") {
+        const onStorage = (event: StorageEvent) => {
+          if (event.key === null || event.key === SESSION_STORAGE_KEY) listener();
+        };
+        window.addEventListener("storage", onStorage);
+        window.addEventListener(SESSION_CHANGE_EVENT, listener);
+        return () => {
+          window.removeEventListener("storage", onStorage);
+          window.removeEventListener(SESSION_CHANGE_EVENT, listener);
+        };
+      }
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

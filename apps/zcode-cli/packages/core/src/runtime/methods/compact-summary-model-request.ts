@@ -12,6 +12,7 @@ import type {
   Model,
   ModelInvocationContext,
   ModelStreamEvent,
+  ModelTextContentBlock,
   ModelToolCall,
   ModelUsage,
   TraceContext,
@@ -49,6 +50,8 @@ interface CompactSummaryFinish {
 
 interface CompactSummaryStreamState {
   committedText: string;
+  /** 每个到达 text_end 的文本块，供摘要选块；committedText 是它们的直接拼接。 */
+  committedTextBlocks: ModelTextContentBlock[];
   committedContentBlock: boolean;
   currentTextBlockId?: string;
   finish?: CompactSummaryFinish;
@@ -153,9 +156,11 @@ function applyCompactSummaryStreamEvent(
       return;
     }
 
-    case "text_end":
-      state.committedText +=
+    case "text_end": {
+      const text =
         state.pendingTextById.get(event.id) ?? state.pendingTextById.get(undefined) ?? "";
+      state.committedText += text;
+      state.committedTextBlocks.push({ type: "text", text });
       state.pendingTextById.delete(event.id);
       state.pendingTextById.delete(undefined);
       if (state.currentTextBlockId === event.id) {
@@ -163,6 +168,7 @@ function applyCompactSummaryStreamEvent(
       }
       commitNormalizedContentBlock(state);
       return;
+    }
 
     case "reasoning_delta":
       state.sawDelta = true;
@@ -414,6 +420,7 @@ function compactSummaryStreamResult(
     finishReason: finish.finishReason,
     providerMetadata: finish.providerMetadata,
     text: state.committedText,
+    textBlocks: state.committedTextBlocks,
     toolCalls: state.toolCalls.length > 0 ? state.toolCalls : undefined,
     usage: finish.usage,
   };
@@ -466,6 +473,7 @@ function isProviderContentBlockDeltaCompatible(
 function createCompactSummaryStreamState(): CompactSummaryStreamState {
   return {
     committedText: "",
+    committedTextBlocks: [],
     committedContentBlock: false,
     pendingTextById: new Map(),
     providerContentBlockTypes: new Map(),

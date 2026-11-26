@@ -143,7 +143,7 @@ describe("ProductProjection cold hydration subagent materialization", () => {
     const liveProjection = new ProductProjection("cold-hydration-session", "epoch-live");
     const liveMaterialize = spyOnSubagentMaterialization(liveProjection);
     expect(liveProjection.applyEvent(checkpoint)).toEqual([]);
-    expect(liveMaterialize).toHaveBeenCalledOnce();
+    expect(liveMaterialize).not.toHaveBeenCalled();
     expect(liveProjection.getSnapshot().seq).toBe(1);
   });
 

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { createContextBuilder } from "../src/context/builder.js";
 import type { ContextBuilderConfig } from "../src/context/types.js";
+import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
+import { collectSkillsListing } from "../src/runtime/methods/context-refresh.js";
 
 const ENV_INFO = {
   cwd: "/tmp/workspace",
@@ -97,44 +99,31 @@ test("关闭动态段注入后，system 提示词只剩身份段", () => {
 });
 
 test("skills 清单开关：关闭后不再注入 skills_listing 附件", () => {
-  // 清单是独立的 meta-user 消息；这条开关只控制它，不影响身份段与动态段。
+  // 清单由 runtime 的 skills_listing 增量收集器发出；这条开关只控制它，不影响身份段与动态段。
   const skills = {
     skills: [{ name: "demo-skill", description: "示例技能", path: "/tmp/demo/SKILL.md" }],
     diagnostics: [],
     totalDiscovered: 1,
   };
-  const withListing = build({
-    skills,
-    guidanceToolNames: ["Skill"],
-    identityPreset: {
-      id: "a",
-      name: "A",
-      content: "你是我的私人助理。",
-      injectDynamic: true,
-      injectSkills: true,
-    },
-  });
-  assert.deepEqual(
-    withListing.metaUserAttachments.map((attachment) => attachment.source),
-    // 日期改由运行时独立公告，不再伪装成指令 carrier。
-    ["skills_listing"],
-  );
+  const createSkillsRuntime = (injectSkills: boolean) =>
+    ({
+      config: {
+        identityPreset: {
+          id: "a",
+          name: "A",
+          content: "你是我的私人助理。",
+          injectDynamic: true,
+          injectSkills,
+        },
+      },
+      skillLoadOutcome: skills,
+    }) as unknown as AgentRuntimeInternal;
 
-  const withoutListing = build({
-    skills,
-    guidanceToolNames: ["Skill"],
-    identityPreset: {
-      id: "a",
-      name: "A",
-      content: "你是我的私人助理。",
-      injectDynamic: true,
-      injectSkills: false,
-    },
-  });
-  assert.deepEqual(
-    withoutListing.metaUserAttachments.map((attachment) => attachment.source),
-    [],
-  );
+  const withListing = collectSkillsListing(createSkillsRuntime(true), [], [{ name: "Skill" }]);
+  assert.equal(withListing?.metadata.source, "skills_listing");
+
+  const withoutListing = collectSkillsListing(createSkillsRuntime(false), [], [{ name: "Skill" }]);
+  assert.equal(withoutListing, undefined);
 });
 
 test("关闭动态段注入后，当前日期也不再注入（AGENTS.md 照旧）", () => {

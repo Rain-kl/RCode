@@ -15,9 +15,9 @@ Android 的显示版本与根版本一致，安装版本码由正式版本号生
 
 ## 通道与触发
 
-| 通道     | 触发条件                              | 版本                                | Release                                                                           |
-| -------- | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
-| `stable` | 推送 `v*.*.*` tag                     | tag 去掉 `v` 前缀（如 `3.14.3`）    | `v3.14.3`，正式 Release                                                           |
+| 通道     | 触发条件                              | 版本                                | Release                                                                               |
+| -------- | ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------- |
+| `stable` | 推送 `v*.*.*` tag                     | tag 去掉 `v` 前缀（如 `3.14.3`）    | `v3.14.3`，正式 Release                                                               |
 | `dev`    | 推送到 `canary` 分支，或手动 dispatch | `<根 package.json 版本>-dev.<sha8>` | 固定 tag `canary-build` 的指针发布（不建 dev-<sha8>）；执行全部测试，构建成功即可发布 |
 
 手动 dispatch 只能选 `dev`；`stable` 必须由 tag 触发，否则流水线在 `resolve` 阶段直接失败，避免出现「人工填版本 + 无 tag」的稳定版本。
@@ -51,6 +51,7 @@ Android 的显示版本与根版本一致，安装版本码由正式版本号生
 - `ZCODE_DESKTOP_DIST_DIR=dist-<os>-<arch>`：按平台隔离 electron-builder 输出目录，避免多架构共享 checkout 时互相覆盖。
 - macOS 只发布 arm64 包。若要发布 Intel 包，必须在 Intel runner（`macos-15-intel`）上构建：node-pty 在非 Windows 宿主按宿主架构 `electron-rebuild`，且运行时优先加载 `build/Release/pty.node`，在 arm64 宿主上打 x64 包会混入 arm64 原生模块。
 - 首次发布前需在组织/仓库 Secrets 配置（可选）：`MAC_CSC_LINK`、`MAC_CSC_KEY_PASSWORD`、`MAC_SIGNING_IDENTITY`。三个变量同时存在时流水线设置 `ZCODE_ENABLE_MAC_SIGN=1` 并注入 electron-builder 证书变量；缺省则产出未签名包。
+- Windows 原生辅助工具（`windows-runtime-host`、`preinstalled-entry-shim` 与本地 `native-search` MSVC 构建）通过 `vswhere` 按已安装 Visual Studio 主版本自动选择 CMake 生成器（兼容 Visual Studio 2022 与 Visual Studio 2026），并支持通过 `ZCODE_WINDOWS_CMAKE_GENERATOR` 或 Visual Studio 形态的 `CMAKE_GENERATOR` 显式覆盖。
 
 ## 验收场景
 

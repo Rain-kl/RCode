@@ -64,6 +64,7 @@ import {
   calculateRetryDelay,
   classifyAttemptAdmissionFailure,
   logRetryDelayDecision,
+  retryDelayWithAdmissionCooldown,
   sleep,
   TerminalStreamChunkError,
   toAdapterError,
@@ -96,7 +97,10 @@ import {
   providerRequestIdFromHeaders,
   readModelFailureErrorPhase,
 } from "./runner-telemetry.js";
-import { repairReasoningHistoryAfterSignatureRejection } from "./reasoning-history-normalization.js";
+import {
+  repairReasoningHistoryAfterRejection,
+  thinkingSignatureRejectionEvidence,
+} from "./reasoning-history-normalization.js";
 
 type StreamFailurePhase = "request_setup" | "response_body";
 
@@ -174,6 +178,11 @@ export async function* runStreamText(input: {
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
+  // 修复后的重试成功时，在 finish 上告诉 core 记 signedReasoningReset，之后的请求不再发被拒的块。
+  const withRepairMarker = (event: ModelStreamEvent): ModelStreamEvent =>
+    signatureRepairAttempted && event.type === "finish"
+      ? { ...event, signedReasoningReset: true }
+      : event;
   const authRetry = new AccountRequestRetry(input.request, input.resolved, input.logger);
   let emptyCompletionRetryCount = 0;
   // 不认识的业务码在本次请求里连续出现的次数：workflow 策略表据此停下，见 workflow-model-failure-policy.ts。
@@ -245,28 +254,34 @@ export async function* runStreamText(input: {
     let streamStallCount = 0;
     let streamOutputCommitted = false;
     const repairThinkingSignatureRejection = (error: unknown): boolean => {
-      if (signatureRepairAttempted || resolved.providerKind !== "anthropic") {
-        return false;
-      }
-      const repairedMessages = repairReasoningHistoryAfterSignatureRejection(
+      if (signatureRepairAttempted) return false;
+      const repairedMessages = repairReasoningHistoryAfterRejection(
         requestMessages,
         error,
+        resolved.providerKind,
       );
       if (!repairedMessages) return false;
 
-      // 签名只对生成它的 thinking block 有效。流尚未提交输出时，只替换
       // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
+      // 签名和加密推理只对生成它的上游有效。流尚未提交输出时，只替换
       // 本次请求副本，并在共享预算内给一次拥有新 requestId 的物理请求机会；
       // 不能把清理结果写回 canonical history。
       signatureRepairAttempted = true;
       requestMessages = repairedMessages;
-      input.logger?.warn("Retrying model stream after thinking signature rejection", {
+      input.logger?.warn("Retrying model stream after reasoning rejection", {
         attempt,
         event: "model.reasoning_signature_repair.retry",
         maxAttempts: input.retry.maxAttempts + 1 + authRetry.extraAttempts,
         nextAttempt: attempt + 1,
+        // 同一事件也用于 Responses 加密推理被拒，记下类型以区分。
+        providerKind: resolved.providerKind,
         requestId: statusContext.requestId,
         status: "waiting",
+        // 记下 provider 原文和 prefix 不一致响应头：写明哪一块、因为什么被拒，排查前缀变化时用。
+        ...thinkingSignatureRejectionEvidence(
+          error,
+          sanitizeModelNetworkHeaders(getResponseHeaders(unwrapRetryError(error))),
+        ),
       });
       return true;
     };
@@ -482,7 +497,7 @@ export async function* runStreamText(input: {
             emittedRetryBoundaryEvent = true;
             for (const pendingEvent of pendingRetrySafeEvents.splice(0)) {
               emittedEvent = true;
-              yield pendingEvent;
+              yield withRepairMarker(pendingEvent);
             }
             // 无 raw message-block provenance 的 provider 可能直接给完整 tool-call。
             // 先把 inferred block stop 交给隐藏 collector，再传播校验错误，避免 HTTP 重放。
@@ -560,7 +575,7 @@ export async function* runStreamText(input: {
             const observation = observeVisibleStreamEvent(visibleEvent, Date.now() - startedAt);
             await publishVisibleMilestones(observation);
             streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-            yield visibleEvent;
+            yield withRepairMarker(visibleEvent);
           }
         }
       }
@@ -592,7 +607,7 @@ export async function* runStreamText(input: {
           const observation = observeVisibleStreamEvent(visibleEvent, Date.now() - startedAt);
           await publishVisibleMilestones(observation);
           streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-          yield visibleEvent;
+          yield withRepairMarker(visibleEvent);
         }
       }
 
@@ -601,7 +616,7 @@ export async function* runStreamText(input: {
         const observation = observeVisibleStreamEvent(pendingEvent, Date.now() - startedAt);
         await publishVisibleMilestones(observation);
         streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-        yield pendingEvent;
+        yield withRepairMarker(pendingEvent);
       }
 
       // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
@@ -713,10 +728,12 @@ export async function* runStreamText(input: {
             emptyCompletionRetryCount += 1;
             await scheduleEmptyCompletionRetry({
               abortSignal: input.request.abortSignal,
+              admission,
               attempt,
               completedAt,
               errorPhase: "stream",
               logger: input.logger,
+              modelRequestAdmission: input.request.modelRequestAdmission,
               requestHeaders,
               requestStatusSink: input.request.statusSink,
               responseHeaders,
@@ -984,13 +1001,24 @@ export async function* runStreamText(input: {
         });
       }
 
-      const delayMs =
+      // off-peak 排队有自己的服务端协议，等待不叠加冷却；普通重试取 max(本地退避, 准入端口的剩余冷却)。
+      const { admissionCooldownMs, backoffMs, delayMs } =
         offPeak?.kind === "queued"
-          ? // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
-            Math.min(offPeak.delayMs, 30_000, input.retry.maxDelayMs)
-          : calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs);
+          ? (() => {
+              // FORK(codex-collaboration): 现有模型调用边界必须执行统一有界恢复策略，见 FEATURES.md。
+              const bounded = Math.min(offPeak.delayMs, 30_000, input.retry.maxDelayMs);
+              return { admissionCooldownMs: 0, backoffMs: bounded, delayMs: bounded };
+            })()
+          : retryDelayWithAdmissionCooldown({
+              admission: input.request.modelRequestAdmission,
+              backoffMs: calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs),
+              jitter: input.retry.jitter,
+              statusContext,
+            });
       logRetryDelayDecision({
+        admissionCooldownMs,
         attempt,
+        backoffMs,
         canRetry: failureDecision.canRetry,
         delayMs,
         failure,
@@ -1388,7 +1416,7 @@ function compactDirectToolCallCommitEvent(
 }
 
 async function handleStreamErrorEvent(
-  input: Parameters<typeof handleStreamChunk>[0],
+  _input: Parameters<typeof handleStreamChunk>[0],
   error: unknown,
 ): Promise<Awaited<ReturnType<typeof handleStreamChunk>>> {
   // FORK(codex-collaboration): chunk 和 iterator reject 必须经过同一预算、退避与清理路径。

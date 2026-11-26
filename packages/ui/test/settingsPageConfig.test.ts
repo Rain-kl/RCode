@@ -54,6 +54,7 @@ describe("settingsPageConfig", () => {
           "toolGroups",
           "systemInstructions",
           "personalization",
+          "agentBehavior",
           "memory",
           "subagents",
           "plugin",
@@ -74,6 +75,7 @@ describe("settingsPageConfig", () => {
       "toolGroups",
       "systemInstructions",
       "personalization",
+      "agentBehavior",
       "memory",
       "subagents",
       "plugin",
@@ -104,6 +106,7 @@ describe("settingsPageConfig", () => {
       "toolGroups",
       "systemInstructions",
       "personalization",
+      "agentBehavior",
       "memory",
       "subagents",
       "plugin",
@@ -170,8 +173,8 @@ describe("settingsPageConfig", () => {
       "modelProvider",
       "configSync",
       "browser",
-      "remoteDevices",
       "computerUse",
+      "remoteDevices",
       "shortcuts",
     ]);
     expect(
@@ -189,5 +192,20 @@ describe("settingsPageConfig", () => {
     expect(resolveSettingsSectionForPlatform("computerUse", settingsSections, "general")).toBe(
       "general",
     );
+  });
+
+  it("FORK_LOCAL_MODE 下隐藏依赖云端的分享管理设置入口", async () => {
+    const { createSettingsPageConfig, isSettingsSectionAvailable: checkAvailable } =
+      await loadSettingsPageConfig("test");
+    expect(checkAvailable("shares", true)).toBe(false);
+    const { settingsSections, settingsSectionGroups } = createSettingsPageConfig({
+      isDesktop: true,
+    });
+    expect(settingsSections.some((section) => section.id === "shares")).toBe(false);
+    expect(
+      settingsSectionGroups.some((group) =>
+        group.sections.some((section) => section.id === "shares"),
+      ),
+    ).toBe(false);
   });
 });

@@ -129,7 +129,7 @@ export async function resolveSubagentMcpAccess(
   const scopedServerNames = request.profile.mcpServers?.length
     ? request.profile.mcpServers
     : undefined;
-  if (!this.mcpPort || this.config.mcp?.enabled === false) {
+  if (!this.mcpPort || !this.mcpSession || this.config.mcp?.enabled === false) {
     if (scopedServerNames) {
       throw createSubagentMcpUnavailableError(request);
     }
@@ -141,8 +141,8 @@ export async function resolveSubagentMcpAccess(
     };
   }
 
-  // child 不拥有连接生命周期，只能复用 parent constructor 已创建的启动快照。
-  const parentStartupSnapshot = await this.mcpStartupPromise;
+  // child 不拥有连接生命周期，只能复用 parent mcpSession 已触发的启动快照。
+  const parentStartupSnapshot = await this.mcpSession.start();
   if (!parentStartupSnapshot) {
     if (scopedServerNames) {
       throw createSubagentMcpUnavailableError(request);

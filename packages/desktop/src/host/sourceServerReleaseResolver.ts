@@ -36,8 +36,17 @@ import { createUnsupportedRemotePlatformError } from "@zcode/server/remote/remot
 import type {
   ServerReleaseAsset,
   SourceServerProbeResult,
+  TransportContext,
 } from "@zcode/server/source-server";
 import type { WindowRemoteAssetDirs } from "./windowRemoteConnectionRegistry.js";
+
+/** release 解析的调用方上下文：本机请求响应取消，本机下载按 `download` 阶段写进度（R3 §6.3）。 */
+export interface SourceServerReleaseResolveOptions extends Pick<
+  TransportContext,
+  "signal" | "onLog"
+> {
+  metadataOnly?: boolean;
+}
 
 interface ResolvedDescriptor {
   descriptor: SourceServerReleaseDescriptor;
@@ -145,6 +154,7 @@ async function resolveRemoteDescriptor(
   remoteAssets: WindowRemoteAssetDirs,
   cacheRoot: string | null,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
+  signal?: AbortSignal,
 ): Promise<ResolvedDescriptor> {
   const releaseBases = buildReleaseBaseCandidates(
     remoteAssets.remoteCdnBaseUrls ??
@@ -163,7 +173,7 @@ async function resolveRemoteDescriptor(
   const fetchImpl = resolveRemoteAssetFetch(remoteAssetNetwork);
   for (const url of descriptorUrls) {
     try {
-      const response = await fetchImpl(url);
+      const response = await fetchImpl(url, { signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
       const descriptor = readDescriptor(text);
@@ -171,6 +181,8 @@ async function resolveRemoteDescriptor(
         await writeTextAtomic(cachedDescriptorPath, text);
       return { descriptor, releaseBases };
     } catch (error) {
+      // 取消不是候选地址失败：不再尝试下一个地址，也不回退到缓存的 descriptor。
+      signal?.throwIfAborted();
       // FORK-BEGIN(github-update)
       // RPC 不传递 cause 链，必须保留各下载源和错误上下文。
       const failure = new Error(
@@ -197,28 +209,65 @@ async function resolveRemoteDescriptor(
   );
 }
 
+/** 本机下载进度：消息格式与上传进度一致，最多每 500 毫秒写一次，下载结束补 100%。 */
+function createDownloadProgress(totalBytes: number, onLog: TransportContext["onLog"]) {
+  const startedAt = Date.now();
+  let receivedBytes = 0;
+  // 第一条进度也等满 500 毫秒：只凭首个数据块算出的速度偏高，会让预计剩余时间失真。
+  let reportedAt = startedAt;
+  const report = () => {
+    reportedAt = Date.now();
+    const progress = totalBytes > 0 ? Math.min(1, receivedBytes / totalBytes) : 0;
+    const seconds = Math.max(0.001, (reportedAt - startedAt) / 1000);
+    onLog?.({
+      phase: "download",
+      message: `download progress: ${(progress * 100).toFixed(1)}% (${(receivedBytes / 1048576).toFixed(1)}/${(totalBytes / 1048576).toFixed(1)} MB, ${(receivedBytes / 1048576 / seconds).toFixed(2)} MB/s)`,
+      progress,
+    });
+  };
+  return {
+    add(bytes: number) {
+      receivedBytes += bytes;
+      if (Date.now() - reportedAt >= 500) report();
+    },
+    finish: report,
+  };
+}
+
 async function downloadArchive(
   archive: SourceServerReleaseArchive,
   urls: string[],
   cacheRoot: string,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
+  { signal, onLog }: Pick<TransportContext, "signal" | "onLog"> = {},
 ): Promise<string> {
   await mkdir(cacheRoot, { recursive: true });
   const cached = join(cacheRoot, archive.fileName);
   if (await verifyArchive(cached, archive)) return cached;
   await rm(cached, { force: true });
+  // Bug 原因（ZCT-2117527614209818624）：这里下载约 90MB archive 时不写日志、不接收取消信号。
+  // 慢网下更新停在“Checking the remote device”几分钟，向导无法取消，只能等下载结束或网络超时。
+  onLog?.({ phase: "download", message: `Downloading Source Server ${archive.version}` });
   let lastError: unknown;
   const fetchImpl = resolveRemoteAssetFetch(remoteAssetNetwork);
   for (const url of urls) {
     const temporary = `${cached}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      const response = await fetchImpl(url);
-      if (!response.ok || !response.body)
-        throw new Error(`HTTP ${response.status}`);
+      const response = await fetchImpl(url, { signal });
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      const progress = createDownloadProgress(archive.sizeBytes, onLog);
       await pipeline(
         Readable.fromWeb(response.body as never),
+        async function* (source: AsyncIterable<Buffer>) {
+          for await (const chunk of source) {
+            progress.add(chunk.length);
+            yield chunk;
+          }
+        },
         createWriteStream(temporary, { mode: 0o600 }),
+        { signal },
       );
+      progress.finish();
       if (!(await verifyArchive(temporary, archive))) {
         throw new Error(
           `Source Server archive checksum mismatch: ${archive.fileName}`,
@@ -227,8 +276,10 @@ async function downloadArchive(
       await rename(temporary, cached);
       return cached;
     } catch (error) {
-      lastError = error;
       await rm(temporary, { force: true }).catch(() => undefined);
+      // 取消不是候选地址失败：删除临时文件后直接结束，不再尝试下一个地址。
+      signal?.throwIfAborted();
+      lastError = error;
     }
   }
   throw new Error(
@@ -245,6 +296,10 @@ export async function resolveSourceServerReleaseAsset(
   try {
     return await resolveReleaseAsset(...args);
   } catch (error) {
+    // Bug 原因：首次安装把窗口的连接信号传给 resolver 后，「取消连接」以无原因的 abort() 中止下载，
+    // 抛出的是只读 DOMException；这里给它写 code 会抛 TypeError，取消被记成下载失败（unknown、error 级）。
+    // 取消不是下载失败，原样抛出取消原因，由调用方按取消收口。
+    args[4]?.signal?.throwIfAborted();
     const failure = normalizeRemoteConnectionError(error, "download");
     throw Object.assign(
       error instanceof Error ? error : new Error(failure.message),
@@ -258,7 +313,7 @@ async function resolveReleaseAsset(
   remoteAssets: WindowRemoteAssetDirs,
   remoteTarget: Exclude<RemoteTarget, { kind: "server" }>,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
-  options: { metadataOnly?: boolean } = {},
+  options: SourceServerReleaseResolveOptions = {},
 ): Promise<ServerReleaseAsset> {
   if (
     (probe.platform !== "linux" && probe.platform !== "darwin") ||
@@ -333,6 +388,7 @@ async function resolveReleaseAsset(
     remoteAssets,
     cacheRoot,
     remoteAssetNetwork,
+    options.signal,
   );
   const archive = findArchive(resolvedDescriptor.descriptor, target);
   const urls = resolveArchiveUrls(resolvedDescriptor.releaseBases, archive);
@@ -351,12 +407,7 @@ async function resolveReleaseAsset(
       `Source Server release cache is unavailable: ${archive.fileName}`,
     );
   return {
-    localArchivePath: await downloadArchive(
-      archive,
-      urls,
-      cacheRoot,
-      remoteAssetNetwork,
-    ),
+    localArchivePath: await downloadArchive(archive, urls, cacheRoot, remoteAssetNetwork, options),
     target,
     // FORK(github-update): 固定 dev Release 的 descriptor 版本才是实际安装版本。
     version: resolvedDescriptor.descriptor.version,

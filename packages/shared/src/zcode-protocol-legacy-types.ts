@@ -331,6 +331,7 @@ export const zcodeTimelinePartSchema = partBaseSchema
       "model_change",
       // FORK(reload-command): 独立维护回执必须跨旧消息协议保留，不可伪装成 compact。
       "fork_refresh_completed",
+      "worktree_creation",
     ]),
     display: z.enum(["separator", "worklog"]),
     status: z.string().optional(),
@@ -374,6 +375,16 @@ export const zcodeTimelinePartSchema = partBaseSchema
       .extend({
         label: nonEmptyString,
       })
+      .optional(),
+    // timelineType = worktree_creation：受管 worktree 的创建结果（docs/git/worktree.md §6.6.4）。
+    worktreeCreation: z
+      .object({
+        path: nonEmptyString,
+        sha: nonEmptyString,
+        ref: z.string().nullable(),
+        output: z.string(),
+      })
+      .strict()
       .optional(),
   })
   .strict();

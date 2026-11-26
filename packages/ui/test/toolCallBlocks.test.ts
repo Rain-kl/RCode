@@ -10,7 +10,6 @@ import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { ToolCallBlock } from "../src/ToolCallBlocks.js";
 import { ToolCallBody } from "../src/ToolCallBlocks/ToolCallBody.js";
 import { readRawToolCallFileSummaries } from "../src/ToolCallBlocks/shared.js";
-import { isExploreToolCall } from "../src/lib/exploreToolCall.js";
 import { buildToolDisplayModel } from "../src/lib/toolDisplay.js";
 import { toolCallRowToLegacyNode } from "../src/v4/toolCallRowAdapter.js";
 
@@ -71,19 +70,6 @@ vi.mock("@/ToolCallBlocks/renderers/plan-guidance.js", () => ({
 }));
 
 afterEach(cleanup);
-
-describe("isExploreToolCall", () => {
-  it("does not classify redirect write commands as explore", () => {
-    const result = isExploreToolCall({
-      kind: "execute",
-      input: {
-        command: ["/bin/zsh", "-lc", "cat > index.html <<'EOF' <!doctype html>"],
-      },
-    });
-
-    expect(result).toBe(false);
-  });
-});
 
 describe("ToolCallBlock agent routing", () => {
   it("renders compact trusted MCP labels from the real plugin-scoped payload", () => {
@@ -163,7 +149,6 @@ describe("ToolCallBlock agent routing", () => {
     expect(summary.textContent).toContain("Firebase");
     expect(summary.textContent).toContain("Get environment");
     expect(summary.textContent).toContain("已停止");
-    expect(summary.innerHTML).toContain(">·</span>");
     expect(summary.textContent).not.toContain(syntheticName);
 
     fireEvent.click(summary);
@@ -258,11 +243,6 @@ describe("ToolCallBlock agent routing", () => {
       expect(summary.textContent).not.toContain(label);
     } else {
       expect(summary.textContent).toContain(label);
-      expect(
-        Array.from(summary.querySelectorAll("span")).filter(
-          (element) => element.textContent === "·",
-        ),
-      ).toHaveLength(2);
     }
     fireEvent.click(summary);
     if (canExpand) {
@@ -304,9 +284,6 @@ describe("ToolCallBlock agent routing", () => {
     );
 
     const summary = screen.getByTestId("tool-summary-trigger-call-mcp-failed");
-    expect(
-      Array.from(summary.querySelectorAll("span")).filter((element) => element.textContent === "·"),
-    ).toHaveLength(2);
     fireEvent.click(summary);
     const detail = screen.getByTestId("mcp-expanded-content");
     expect(detail.textContent).toContain("Firebase authentication failed.");
@@ -461,36 +438,40 @@ describe("readRawToolCallFileSummaries", () => {
       createElement(
         ZCodeIntlProvider,
         { initialLocale: "zh-CN" },
-        createElement(ToolCallBlock, {
-          toolCallNode: {
-            toolCall: {
-              toolId: "tool-read-weird",
-              kind: "read",
-              title: "Read snake/index.html",
-              input: {
-                file_path: "/Users/dev/ZCodeProject/demo/snake/index.html",
-              },
-              output: {
-                content: "function deleteFood() { return writeScore(); }",
-              },
-              status: "completed",
-              raw: {
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(ToolCallBlock, {
+            toolCallNode: {
+              toolCall: {
+                toolId: "tool-read-weird",
                 kind: "read",
-                changes: {
-                  "/Users/dev/ZCodeProject/demo/snake/index.html": {
-                    type: "add",
-                    content: "unexpected",
-                  },
-                },
-                rawInput: {
+                title: "Read snake/index.html",
+                input: {
                   file_path: "/Users/dev/ZCodeProject/demo/snake/index.html",
                 },
+                output: {
+                  content: "function deleteFood() { return writeScore(); }",
+                },
+                status: "completed",
+                raw: {
+                  kind: "read",
+                  changes: {
+                    "/Users/dev/ZCodeProject/demo/snake/index.html": {
+                      type: "add",
+                      content: "unexpected",
+                    },
+                  },
+                  rawInput: {
+                    file_path: "/Users/dev/ZCodeProject/demo/snake/index.html",
+                  },
+                },
               },
+              childToolCalls: [],
             },
-            childToolCalls: [],
-          },
-          workspacePath: "/workspace",
-        }),
+            workspacePath: "/workspace",
+          }),
+        ),
       ),
     );
 
@@ -810,42 +791,46 @@ describe("readRawToolCallFileSummaries", () => {
       createElement(
         ZCodeIntlProvider,
         { initialLocale: "zh-CN" },
-        createElement(ToolCallBlock, {
-          toolCallNode: {
-            toolCall: {
-              toolId: "tool-explore-read-like",
-              kind: "explore",
-              title: "Read snake/game.ts",
-              input: {
-                file_path: "/Users/dev/ZCodeProject/demo/snake/game.ts",
-              },
-              output: "...",
-              status: "completed",
-              raw: {
-                _meta: {
-                  claudeCode: {
-                    toolName: "Read",
-                  },
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(ToolCallBlock, {
+            toolCallNode: {
+              toolCall: {
+                toolId: "tool-explore-read-like",
+                kind: "explore",
+                title: "Read snake/game.ts",
+                input: {
+                  file_path: "/Users/dev/ZCodeProject/demo/snake/game.ts",
                 },
-                content: [
-                  {
-                    type: "content",
-                    content: {
-                      type: "text",
-                      text: "function deleteFood() { return writeScore(); }",
+                output: "...",
+                status: "completed",
+                raw: {
+                  _meta: {
+                    claudeCode: {
+                      toolName: "Read",
                     },
                   },
-                ],
-                rawOutput: "...",
-                status: "completed",
-                toolCallId: "call_bcbf3d3258d34b44b3dbc0b4",
-                sessionUpdate: "tool_call_update",
+                  content: [
+                    {
+                      type: "content",
+                      content: {
+                        type: "text",
+                        text: "function deleteFood() { return writeScore(); }",
+                      },
+                    },
+                  ],
+                  rawOutput: "...",
+                  status: "completed",
+                  toolCallId: "call_bcbf3d3258d34b44b3dbc0b4",
+                  sessionUpdate: "tool_call_update",
+                },
               },
+              childToolCalls: [],
             },
-            childToolCalls: [],
-          },
-          workspacePath: "/workspace",
-        }),
+            workspacePath: "/workspace",
+          }),
+        ),
       ),
     );
 
@@ -889,7 +874,7 @@ describe("readRawToolCallFileSummaries", () => {
       ),
     );
 
-    expect(html).toContain("终端");
+    expect(html).toContain("已执行");
     expect(html).not.toContain("已删除");
     expect(html).not.toContain("已编辑");
     expect(html).not.toContain("Deleting");

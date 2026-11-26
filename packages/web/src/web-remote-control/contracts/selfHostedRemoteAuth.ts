@@ -10,7 +10,9 @@ export interface SelfHostedRemoteAccount {
 
 export interface SelfHostedRemoteAuth {
   getZCodeJwtToken(): string | null;
+  getSessionRevision(): string | null;
   getActiveAccount(): SelfHostedRemoteAccount | null;
   startLogin(credentials: SelfHostedRemoteCredentials): Promise<void>;
   logout(): Promise<void>;
+  subscribeSessionChange(listener: () => void): () => void;
 }

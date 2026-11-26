@@ -4,13 +4,14 @@ import { describe, expect, it } from "vitest";
 import { ToolPresentation } from "@/ToolCallBlocks/ToolPresentation.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
+import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 const cases = [
   ["WebFetch", { url: "https://example.com/paper", prompt: "hidden extraction" }, "Fetch"],
   ["WebSearch", { query: "test query" }, "Search"],
   ["Read", { file_path: "/Users/dev/example.ts" }, "Read"],
-  ["Bash", { command: "echo hello" }, "Terminal"],
+  ["Bash", { command: "echo hello" }, "Ran"],
   ["Skill", { skill: "test-skill" }, "Skill"],
   // 六工具切换后只验证新 spawn 合同；旧 Agent 已删除，不能靠恢复展示兼容满足断言。
   ["spawn_agent", { task_name: "researcher", message: "Investigate" }, "researcher"],
@@ -36,11 +37,15 @@ describe("common readonly tool renderer", () => {
           createElement(
             ZCodeIntlProvider,
             { initialLocale: "en-US" },
-            createElement(component, {
-              toolCallNode: node,
-              workspacePath: "",
-              showTodoToolCalls: false,
-            }),
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(component, {
+                toolCallNode: node,
+                workspacePath: "",
+                showTodoToolCalls: false,
+              }),
+            ),
           ),
         );
       const app = render(ToolCallBlock);

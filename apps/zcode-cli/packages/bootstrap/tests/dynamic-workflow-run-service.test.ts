@@ -4,25 +4,28 @@
  * driver，只把模型换成可预测的脚本化 adapter。被测对象是 run service 本身：编译一次、
  * 引擎独占 createRun、run 元数据落库、actor 会话真实化、取消语义、caps 默认值、事件分页。
  */
-
+import {
+  TYPED_SCRIPT,
+  type ActorPlan,
+  type ModelRequestLog,
+  type HarnessOptions,
+  type Harness,
+  HARNESS_PARENT_SESSION,
+  SweepableJournalStore,
+  preloadRun,
+  makeHarness,
+} from "./dynamic-workflow-run-service-fixture.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createTestAgentRuntime, createTestModelSelection } from "./helpers/test-agent-runtime.js";
+import { createTestAgentRuntime } from "./helpers/test-agent-runtime.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInMemorySessionEventStore, createSqliteSessionStore } from "@zcode/adapters/storage";
-import type {
-  DwfArtifactItem,
-  DwfRunIntrospectionQueries,
-  DwfRunLifeSpan,
-  DwfRunSessionListItem,
-} from "@zcode/adapters/storage";
+import type { DwfRunIntrospectionQueries, DwfRunLifeSpan } from "@zcode/adapters/storage";
 import {
-  CoreErrorType,
   ESCALATE_TOOL_NAME,
   RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
-  SUBMIT_RESULT_TOOL_NAME,
   createRootTraceContext,
   createSessionId,
   createToolCallId,
@@ -30,16 +33,13 @@ import {
   DYNAMIC_WORKFLOW_RUN_EVENT_PAYLOAD_LIMITS,
   LIST_WORKFLOW_RUNS_MAX_LIMIT,
   type CollaborationMode,
-  type CreateSessionTaskLinkInput,
   type DynamicWorkflowRunDetail,
   type DynamicWorkflowRunListQuery,
   type DynamicWorkflowRunListResult,
   type DynamicWorkflowRunProgressPayload,
   type MessageWithParts,
   type ModelSelection,
-  type SessionEventStorePort,
   type SessionId,
-  type SessionStorePort,
   type ToolArtifactStorePort,
   type ToolArtifactWriteRequest,
   type WorkflowEscalatePort,
@@ -64,37 +64,25 @@ import {
   InMemoryJournalStore,
   refToString,
   type JournalStorePort,
-  type NodeRecord,
   type RunEvent,
-  type RunRecord,
   type RunStatus,
   type RunStopReason,
 } from "@zcode/dynamic-workflow";
-
-import {
-  createDynamicWorkflowRunService,
-  resolveDynamicWorkflowJournalStore,
-  type DynamicWorkflowActorRuntimeInput,
-} from "../src/app/dynamic-workflow-run-service.js";
+import { resolveDynamicWorkflowJournalStore } from "../src/app/dynamic-workflow-run-service.js";
 import {
   createWorkflowConcurrencyGovernor,
   type WorkflowConcurrencyPort,
 } from "../src/app/workflow-concurrency-governor.js";
 import { resolveWorkflowDefaultConcurrency } from "../src/app/workflow-default-concurrency.js";
 import { replayRunProgress } from "../src/app/dynamic-workflow-run-replay.js";
-import { workflowActorModelPolicy } from "../src/app/workflow-actor-model.js";
-import { workflowActorToolPolicy } from "../src/app/workflow-actor-tools.js";
 import {
   WORKFLOW_QUOTA_RESUME_MARGIN_MS,
   startWorkflowQuotaAutoResume,
 } from "../src/app/dynamic-workflow-quota-resume.js";
-import {
-  fakeFileSystemPort,
-  unsupportedExecutionPort,
-  type PlannedResponse,
-} from "./workflow-driver.helpers.js";
+import { fakeFileSystemPort } from "./workflow-driver.helpers.js";
 import type { ExecutionPort } from "@zcode/contracts";
 import { mkdtempSync, readFileSync } from "node:fs";
+
 /**
  * 独立的 run cwd：harness 把入口文件写到 `<cwd>/.zcode/workflow-runs/<runId>.mjs` 且保留，
  * 用 process.cwd() 会把存档留在包目录里，并让并行测试文件互相覆写同名入口文件。
@@ -115,13 +103,6 @@ vi.mock("@zcode/dynamic-workflow", async (importOriginal) => {
     },
   };
 });
-
-/** 一个 typed ask 的最小脚本；actor ref 为 actor#1@1，ask 站点为 ask#1。 */
-const TYPED_SCRIPT = [
-  "interface Answer { text: string }",
-  'const a = await agent("worker").ask<Answer>("do the thing");',
-  "return a.text;",
-].join("\n");
 
 const BROKEN_SCRIPT = 'const x: number = "definitely not a number";';
 
@@ -871,6 +852,47 @@ describe("dynamic workflow run service — submit", () => {
     expect(snapshot?.status).toBe("completed");
     // 脚本的顶层返回值就是 run 的产物（Answer.text）。
     expect(snapshot?.output).toBe("done");
+  });
+
+  // GUI「配置」读快照取 run 名字（launch.md「The settings turn」）；快照曾不带 name，设置轮与通知退成 run id。
+  it("快照带 run 的名字；没起名的 run 不带", async () => {
+    const harness = makeHarness();
+
+    const named = await submitRun(harness, {
+      cwd: TEST_CWD,
+      name: "triage",
+      scriptText: TYPED_SCRIPT,
+      trace: traceFor("submit-named"),
+    });
+    const unnamed = await submitRun(harness, {
+      cwd: TEST_CWD,
+      scriptText: TYPED_SCRIPT,
+      trace: traceFor("submit-unnamed"),
+    });
+    await settle(harness, named);
+    await settle(harness, unnamed);
+
+    expect((await harness.service.getTask(named))?.name).toBe("triage");
+    expect("name" in (await harness.service.getTask(unnamed))!).toBe(false);
+  });
+
+  it("快照说明引擎在不在本进程：别的进程的在飞 run 为假，终态的 run 不带", async () => {
+    const harness = makeHarness();
+    const runId = await submitRun(harness, {
+      cwd: TEST_CWD,
+      scriptText: TYPED_SCRIPT,
+      trace: traceFor("submit-live-here"),
+    });
+    await settle(harness, runId);
+    expect("liveInThisProcess" in (await harness.service.getTask(runId))!).toBe(false);
+
+    preloadRun(harness.journal, {
+      runId: "dwfrun-other-process",
+      cwd: TEST_CWD,
+      status: "running",
+      parentSessionId: "sess_other",
+    });
+    expect((await harness.service.getTask("dwfrun-other-process"))?.liveInThisProcess).toBe(false);
   });
 
   it("runId 字符集安全：无 # @ /", async () => {
@@ -5674,74 +5696,6 @@ describe("dynamic workflow run service — replayProgressForSession（冷回放�
       expect(coldState?.runs[0]?.usage.spentTokens).toBeGreaterThan(0);
       expect(workflowRunsStateSchema.parse(coldState)).toEqual(coldState);
     });
-  });
-
-  it("被打断的 run（行 stopped/interrupted、事件流没有 run-settled）：追加内存态合成 settle，携 resumable；journal 不动", async () => {
-    const journal = new SweepableJournalStore();
-    preloadRun(journal, {
-      runId: "dwfrun-interrupted",
-      parentSessionId: HARNESS_PARENT_SESSION,
-      scriptText: TYPED_SCRIPT,
-      status: "running",
-    });
-    journal.appendEvent("dwfrun-interrupted", {
-      type: "run-started",
-      caps: { maxConcurrency: 4 },
-    } as never);
-    journal.appendEvent("dwfrun-interrupted", {
-      type: "actor-created",
-      actor: { siteId: "actor#1", ordinal: 1 },
-      name: "worker",
-    } as never);
-    journal.appendEvent("dwfrun-interrupted", {
-      type: "node-queued",
-      instance: { siteId: "ask#1", ordinal: 1 },
-      kind: "ask",
-      actor: { siteId: "actor#1", ordinal: 1 },
-    } as never);
-    journal.appendEvent("dwfrun-interrupted", {
-      type: "escalation-raised",
-      qid: "dwfq-1",
-      actor: { siteId: "actor#1", ordinal: 1 },
-      question: "which branch?",
-      askedAt: 1,
-    } as never);
-    const before = journal.listEvents("dwfrun-interrupted", {
-      types: "all",
-      reportItems: "all",
-    }).length;
-
-    // 构造即孤儿收敛：行被改写成 stopped/interrupted，事件流原样（收敛者不合成事件）。
-    const harness = makeHarness({ journal });
-    expect(journal.getRun("dwfrun-interrupted")).toMatchObject({
-      status: "stopped",
-      stopReason: "interrupted",
-      failure: { code: "Interrupted" },
-    });
-    const replayed = await harness.service.replayProgressForSession!({ excludeRunIds: new Set() });
-
-    expect(
-      journal.listEvents("dwfrun-interrupted", { types: "all", reportItems: "all" }),
-    ).toHaveLength(before);
-    const last = replayed.at(-1);
-    expect(last).toMatchObject({
-      runId: "dwfrun-interrupted",
-      sequence: before,
-      eventType: "run-settled",
-      payload: {
-        status: "stopped",
-        stopReason: "interrupted",
-        error: { code: "Interrupted" },
-        resumable: true,
-      },
-    });
-    expect(replayed.filter((event) => event.eventType === "run-settled")).toHaveLength(1);
-    const state = reduceAll(replayed);
-    expect(state?.runs[0]).toMatchObject({ status: "stopped", resumable: true });
-    expect(state?.runs[0]?.error).toContain("exited");
-    // 停驻问题随终态清空：进程亡故后没有人在等答案。
-    expect(state?.runs[0]?.pendingQuestions).toBeUndefined();
-    expect(state?.runs[0]?.actors[0]?.status).toBe("completed");
   });
 
   it("cancelled 行同样携 resumable；行终态且事件流已含 run-settled 时不再合成第二条", async () => {

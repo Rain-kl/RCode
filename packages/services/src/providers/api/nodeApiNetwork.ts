@@ -3,7 +3,7 @@ import { createUpstreamPolicyFetch } from "@zcode/shared/upstream-network-policy
 import { assertUpstreamRequestAllowed } from "@zcode/shared/upstream-network-policy";
 import { readFile } from "node:fs/promises";
 import { rootCertificates } from "node:tls";
-import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from "undici";
+import { Agent, ProxyAgent, WebSocket, fetch as undiciFetch, type Dispatcher } from "undici";
 
 export interface HostApiNetworkOptions {
   httpProxy?: string;
@@ -11,8 +11,19 @@ export interface HostApiNetworkOptions {
   caCertPath?: string;
 }
 
+export interface HostWebSocketConnection {
+  socket: WebSocket;
+  /** 本次连接是否经 HTTP 代理（来自与 fetch 相同的选路结果） */
+  viaProxy: boolean;
+}
+
 export interface HostApiNetworkTransport {
   fetch: typeof fetch;
+  /**
+   * 按与 fetch 相同的代理、No Proxy 与自定义 CA 建立 WebSocket（ws:// 按 http、wss:// 按 https 选路）。
+   * 连接复用 fetch 的 dispatcher，transport 释放时随 dispatcher 一起关闭；配置无效时 fail-closed。
+   */
+  createWebSocket(url: string): Promise<HostWebSocketConnection>;
   dispose(): void;
   disposeAndWait(): Promise<void>;
 }
@@ -116,14 +127,16 @@ export function createHostApiNetworkTransport(
     dependencies.fetchWithDispatcher ??
     ((input, init) => undiciFetch(input, init as never) as unknown as Promise<Response>);
 
-  const fetch: typeof globalThis.fetch = async (input, init) => {
+  /**
+   * 返回请求应使用的 dispatcher；dispatcher 为 undefined 表示直连且无自定义 CA，沿用默认网络栈。
+   * viaProxy 是本次选路结果，调用方据此区分代理导致的失败，不再自行解析代理设置。
+   */
+  const resolveDispatcher = async (
+    requestUrl: string,
+  ): Promise<{ dispatcher?: Dispatcher; viaProxy: boolean }> => {
     if (disposed) {
       throw new Error("Host API network transport has been disposed");
     }
-    assertUpstreamRequestAllowed(
-      input instanceof Request ? input.url : String(input),
-      init?.method ?? (input instanceof Request ? input.method : "GET"),
-    );
     const requestGeneration = generation;
     if (!optionsPromise) {
       // 设置读取失败只影响当前请求；清掉 rejected promise，避免一次瞬时 IPC/启动竞态
@@ -137,13 +150,12 @@ export function createHostApiNetworkTransport(
     if (disposed || generation !== requestGeneration) {
       throw new Error("Host API network transport has been disposed");
     }
-    const requestUrl = input instanceof Request ? input.url : String(input);
     const route = resolveHostProxyForUrl(requestUrl, options);
     if (route.kind === "invalid") {
       throw new Error(route.reason);
     }
     if (route.kind === "direct" && !options.caCertPath) {
-      return globalThis.fetch(input as Parameters<typeof fetch>[0], init);
+      return { viaProxy: false };
     }
 
     const dispatcherKey = `${route.kind}:${route.kind === "proxy" ? route.proxyUrl : "direct"}:${options.caCertPath ?? ""}`;
@@ -189,6 +201,18 @@ export function createHostApiNetworkTransport(
     const dispatcher = await dispatcherPromise;
     if (disposed || generation !== requestGeneration) {
       throw new Error("Host API network transport has been disposed");
+    }
+    return { dispatcher, viaProxy: route.kind === "proxy" };
+  };
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const requestUrl = input instanceof Request ? input.url : String(input);
+    const { dispatcher } = await resolveDispatcher(requestUrl);
+    if (!dispatcher) {
+      // FORK(local-mode): 无代理/自定义 CA 时也经过全局 fetch 前集中策略审计（包含重定向）。
+      return createUpstreamPolicyFetch((nextInput, nextInit) =>
+        globalThis.fetch(nextInput as Parameters<typeof fetch>[0], nextInit),
+      )(input, init);
     }
     // FORK(local-mode): 显式 undici dispatcher 的重定向也必须逐跳审核。
     return createUpstreamPolicyFetch((nextInput, nextInit) =>
@@ -241,8 +265,23 @@ export function createHostApiNetworkTransport(
     return disposePromise;
   };
 
+  // 修复原因：语音输入的 WebSocket 曾用 Node 全局 WebSocket 直连，绕过用户配置的代理和 CA，
+  // 在只能经代理出网的环境里 ticket 能申请成功、音频连接却失败。改为与 fetch 共用选路和 dispatcher。
+  const createWebSocket = async (url: string): Promise<HostWebSocketConnection> => {
+    const routeUrl = new URL(url);
+    if (routeUrl.protocol === "ws:") routeUrl.protocol = "http:";
+    else if (routeUrl.protocol === "wss:") routeUrl.protocol = "https:";
+    else throw new Error(`Unsupported WebSocket URL protocol: ${routeUrl.protocol}`);
+    // FORK(local-mode): WebSocket 握手请求必须经过集中上游域名策略审核。
+    assertUpstreamRequestAllowed(routeUrl.href, "GET");
+    const { dispatcher, viaProxy } = await resolveDispatcher(routeUrl.href);
+    const socket = dispatcher ? new WebSocket(url, { dispatcher }) : new WebSocket(url);
+    return { socket, viaProxy };
+  };
+
   return {
     fetch,
+    createWebSocket,
     dispose() {
       void startDispose("destroy");
     },

@@ -91,6 +91,7 @@ export function createMemoryExtractionScheduler<
   execute: (
     input: Omit<MemoryExtractionExecutionInput, "snapshot"> & { snapshot: TSnapshot },
   ) => Promise<MemoryExtractionExecutionStatus>,
+  onDrained?: () => void,
 ): MemoryExtractionScheduler<TSnapshot> {
   let cursor: MessageId | undefined;
   let latestPending: Promise<SnapshotAcquisition<TSnapshot>> | undefined;
@@ -145,6 +146,7 @@ export function createMemoryExtractionScheduler<
     } finally {
       if (shuttingDown) latestPending = undefined;
       running = undefined;
+      onDrained?.();
     }
   };
 

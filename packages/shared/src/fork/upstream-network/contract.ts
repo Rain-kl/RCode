@@ -26,9 +26,11 @@ export function isUpstreamRequestAllowed(
   // 编码斜杠/点不能改变资源目录边界；URL 本身会消除标准的 .. 路径。
   if (/%(2e|2f|5c|25)/i.test(url.pathname)) return false;
   if (["cdn-zcode.z.ai", "cdn.codegeex.cn"].includes(host)) {
-    return ["/zcode/official-plugin/", "/zcode/electron/releases/"].some((prefix) =>
-      url.pathname.startsWith(prefix),
-    );
+    return [
+      "/zcode/official-plugin/",
+      "/zcode/electron/releases/",
+      "/zcode/preinstalled-tools/",
+    ].some((prefix) => url.pathname.startsWith(prefix));
   }
   return (
     host === "zcode.z.ai" &&
